@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hashPassword, verifyPassword } from './password';
+import { hashPassword, verifyPassword } from '@/server/modules/auth/password';
 
 describe('password hashing', () => {
   it('never stores the plain password and verifies correctly', async () => {

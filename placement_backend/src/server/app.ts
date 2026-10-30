@@ -13,9 +13,16 @@ import { env } from '@/server/config/env';
 import type { Options as RateLimitOptions } from 'express-rate-limit';
 import { isPortalError } from '@/core/errors/portal-error';
 import { createAuthRouter } from './modules/auth/auth.routes';
+import { createCgpaRouter } from './modules/cgpa/cgpa.routes';
+import { createRegistrationRouter } from './modules/registration/registration.routes';
+import { createProfilesRouter } from './modules/profiles/profiles.routes';
+import { createDrivesRouter } from './modules/drives/drives.routes';
+import { createSpreadsheetRouter } from './modules/spreadsheet/spreadsheet.routes';
+import type { FileStorage } from './services/storage.service';
 
 export interface AppOptions {
   authLimiter?: Partial<RateLimitOptions>;
+  storage?: FileStorage;
 }
 
 /**
@@ -46,6 +53,11 @@ export function createApp(db: Db, options?: AppOptions): Express {
 
   // 3. Mount domain module routers
   app.use('/api/auth', createAuthRouter(db, options?.authLimiter));
+  app.use('/api/cgpa', createCgpaRouter(db));
+  app.use('/api/registration', createRegistrationRouter(db));
+  app.use('/api/profiles', createProfilesRouter(db));
+  app.use('/api/drives', createDrivesRouter(db, options?.storage));
+  app.use('/api/spreadsheet', createSpreadsheetRouter(db));
 
   // 4. JSON 404 Handler for unmatched routes
   app.use((_req: Request, res: Response) => {
