@@ -4,10 +4,14 @@
  */
 
 import { z } from 'zod';
+import {
+  CANONICAL_FIELDS,
+  REQUIRED_CANONICAL_KEYS,
+} from './mapping/canonical-fields';
 
 /**
- * Expected columns map: maps normalized (lowercase, trimmed) header names
- * to standard camelCase properties.
+ * Expected columns map: dynamically built from canonical field keys and synonyms
+ * to ensure CANONICAL_FIELDS is the single source of truth.
  */
 export const COLUMN_MAP: Record<string, string> = {
   studentid: 'studentId',
@@ -24,29 +28,12 @@ export const COLUMN_MAP: Record<string, string> = {
   activebacklogs: 'activeBacklogs',
   'active backlogs': 'activeBacklogs',
   backlogs: 'activeBacklogs',
-  s1sgpa: 's1Sgpa',
-  s1credits: 's1Credits',
-  s2sgpa: 's2Sgpa',
-  s2credits: 's2Credits',
-  s3sgpa: 's3Sgpa',
-  s3credits: 's3Credits',
-  s4sgpa: 's4Sgpa',
-  s4credits: 's4Credits',
-  s5sgpa: 's5Sgpa',
-  s5credits: 's5Credits',
-  s6sgpa: 's6Sgpa',
-  s6credits: 's6Credits',
-} as const;
+  ...Object.fromEntries(
+    CANONICAL_FIELDS.map((f) => [f.key.toLowerCase(), f.key])
+  ),
+};
 
-export const REQUIRED_COLUMNS = [
-  'studentId',
-  'name',
-  'branch',
-  'batch',
-  'email',
-  'phone',
-  'activeBacklogs',
-] as const;
+export const REQUIRED_COLUMNS = REQUIRED_CANONICAL_KEYS;
 
 /**
  * Zod validation schema for a single parsed student row.
