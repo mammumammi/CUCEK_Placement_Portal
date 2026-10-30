@@ -10,3 +10,4 @@ it('renders nothing before the deadline', () => {
   const { container } = render(<DeadlineBanner deadline="2999-01-01T00:00:00Z" />);
   expect(container).toBeEmptyDOMElement();
 });
+

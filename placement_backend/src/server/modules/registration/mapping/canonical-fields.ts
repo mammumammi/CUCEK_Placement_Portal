@@ -42,3 +42,4 @@ export const CANONICAL_FIELD_KEYS: readonly string[] = CANONICAL_FIELDS.map((f) 
 export const REQUIRED_CANONICAL_KEYS: readonly string[] = CANONICAL_FIELDS
   .filter((f) => f.required)
   .map((f) => f.key);
+

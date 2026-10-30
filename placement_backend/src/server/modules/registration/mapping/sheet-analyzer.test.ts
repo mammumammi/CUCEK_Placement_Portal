@@ -103,3 +103,4 @@ describe('analyzeWorkbook', () => {
     expect(serialized).not.toContain('secret@college.edu');
   });
 });
+

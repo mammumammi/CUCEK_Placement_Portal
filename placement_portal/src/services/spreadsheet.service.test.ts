@@ -49,3 +49,4 @@ describe('additional spreadsheet service methods', () => {
     expect(spreadsheetService.saveRowUpdate).toBe(saveRowUpdate);
   });
 });
+

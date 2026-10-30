@@ -272,3 +272,4 @@ export function suggestMappingDeterministic(headers: string[]): SuggestionResult
 
   return { mapping, unmatched };
 }
+

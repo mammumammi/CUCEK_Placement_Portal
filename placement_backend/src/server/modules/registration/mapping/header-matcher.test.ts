@@ -33,3 +33,4 @@ describe('suggestMappingDeterministic', () => {
     expect(mapped).toHaveLength(1);
   });
 });
+
