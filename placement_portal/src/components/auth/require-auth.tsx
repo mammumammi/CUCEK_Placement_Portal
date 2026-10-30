@@ -72,3 +72,4 @@ export function RequireAuth({ children, roles }: RequireAuthProps) {
 }
 
 export default RequireAuth;
+

@@ -116,3 +116,4 @@ describe('RequireAuth Component', () => {
     expect(mockPush).not.toHaveBeenCalled();
   });
 });
+

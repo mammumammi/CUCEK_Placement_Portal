@@ -66,3 +66,4 @@ export const authService = {
   logout,
   getMe,
 };
+
