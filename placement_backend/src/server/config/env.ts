@@ -22,6 +22,8 @@ export const envSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
     .default('development'),
+  GEMINI_API_KEY: z.string().optional(),
+  MAPPING_MODEL: z.string().default('gemini-2.5-flash'),
 });
 
 export type Env = z.infer<typeof envSchema>;
