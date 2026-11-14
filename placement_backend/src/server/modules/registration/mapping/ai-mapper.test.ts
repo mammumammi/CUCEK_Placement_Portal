@@ -25,7 +25,7 @@ describe('AI Mapper & Mapping Service', () => {
     const result = await buildMapping(headers, { client: mockClient });
 
     expect(mockClient.models.generateContent).not.toHaveBeenCalled();
-    expect(result.mapping['Reg No'].field).toBe('studentId');
+    expect(result.mapping['Reg No'].field).toBe('registrationNumber');
     expect(result.mapping['Full Name'].field).toBe('name');
     expect(result.mapping['Dept'].field).toBe('branch');
     expect(result.mapping['Mail Id'].field).toBe('email');
@@ -55,7 +55,7 @@ describe('AI Mapper & Mapping Service', () => {
 
     expect(contents.headers).toEqual(['UnmatchedSpecialCol']);
     expect(contents.headers).not.toContain('Reg No');
-    expect(contents.unavailableFields).toContain('studentId');
+    expect(contents.unavailableFields).toContain('registrationNumber');
   });
 
   it('the request contains no cell data', async () => {
@@ -252,10 +252,12 @@ describe('AI Mapper & Mapping Service', () => {
     expect(res3['Col1']).toEqual({ field: null, confidence: 0, source: 'ai' });
     expect(res3['Col2']).toEqual({ field: null, confidence: 0, source: 'ai' });
 
-    // 4. Missing API key (no client injected and GEMINI_API_KEY is unset)
+    // 4. Missing API key (no client injected and GEMINI_API_KEY / GEMINI_CREDENTIALS is unset)
     clearAiMappingCache();
     const originalKey = process.env.GEMINI_API_KEY;
+    const originalCreds = process.env.GEMINI_CREDENTIALS;
     delete process.env.GEMINI_API_KEY;
+    delete process.env.GEMINI_CREDENTIALS;
 
     try {
       const res4 = await suggestMappingWithAi(['Col1', 'Col2'], {});
@@ -264,6 +266,9 @@ describe('AI Mapper & Mapping Service', () => {
     } finally {
       if (originalKey !== undefined) {
         process.env.GEMINI_API_KEY = originalKey;
+      }
+      if (originalCreds !== undefined) {
+        process.env.GEMINI_CREDENTIALS = originalCreds;
       }
     }
 
@@ -336,16 +341,15 @@ describe('AI Mapper & Mapping Service', () => {
       },
     };
 
-    // 'Reg No' -> studentId (deterministic)
     // 'AcademicStream' -> branch (AI)
-    // Missing required: name, batch, email, phone
+    // Missing required upload key: studentId
     const { mapping, missingRequired } = await buildMapping(
-      ['Reg No', 'AcademicStream'],
+      ['AcademicStream'],
       { client: mockClient }
     );
 
-    expect(mapping['Reg No'].field).toBe('studentId');
     expect(mapping['AcademicStream'].field).toBe('branch');
-    expect(missingRequired).toEqual(['name', 'batch', 'email', 'phone']);
+    expect(missingRequired).toEqual(['studentId']);
   });
 });
+

@@ -9,6 +9,7 @@ import { drives, studentProfiles, applications, applicationRounds } from '@/core
 import { PortalError } from '@/core/errors/portal-error';
 import type { FileStorage } from '@/server/services/storage.service';
 import type { CreateDriveInput, UpdateRoundInput } from './drives.schema';
+import { notifyEligibleStudentsForDrive } from './mail.service';
 
 export interface DriveActor {
   id: string;
@@ -107,15 +108,22 @@ export async function createDrive(
   }
 
   const driveId = crypto.randomUUID();
+  const allowBacklogs = Boolean(input.allowBacklogs || input.maxActiveBacklogs > 0);
+  const maxActiveBacklogs = allowBacklogs ? (input.maxActiveBacklogs > 0 ? input.maxActiveBacklogs : 2) : 0;
+
   const newDrive = {
     id: driveId,
     company: input.company,
+    role: input.role ?? null,
     description: input.description ?? null,
+    packageCategory: input.packageCategory ?? 'GENERAL',
+    ctcLpa: input.ctcLpa ?? null,
     jdFileUrl,
     deadline: new Date(input.deadline).toISOString(),
     eligibleBranches: input.eligibleBranches,
     minCgpa: input.minCgpa,
-    maxActiveBacklogs: input.maxActiveBacklogs,
+    maxActiveBacklogs,
+    allowBacklogs,
     extraFields: input.extraFields ?? [],
     totalRounds: input.totalRounds,
     createdBy: actor.id,
@@ -124,9 +132,19 @@ export async function createDrive(
 
   await db.insert(drives).values(newDrive);
 
+  let notification = null;
+  if (input.notifyEligible) {
+    try {
+      notification = await notifyEligibleStudentsForDrive(db, driveId);
+    } catch {
+      // Ignore notification failures during creation
+    }
+  }
+
   return {
     ...newDrive,
     open: true,
+    notification,
   };
 }
 

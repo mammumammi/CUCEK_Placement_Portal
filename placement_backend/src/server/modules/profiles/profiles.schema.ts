@@ -19,7 +19,13 @@ export type SemesterUpdateInput = z.infer<typeof semesterUpdateSchema>;
  */
 export const profileCorrectionSchema = z
   .object({
+    studentId: z.string().trim().min(1).optional(),
+    registrationNumber: z.string().trim().min(1).optional(),
     name: z.string().trim().min(1, 'Name cannot be empty').optional(),
+    firstName: z.string().trim().min(1).optional(),
+    lastName: z.string().trim().min(1).optional(),
+    dob: z.string().trim().min(1).optional(),
+    age: z.coerce.number().int().min(0).max(120).optional(),
     branch: z.string().trim().min(1, 'Branch cannot be empty').optional(),
     batch: z.string().trim().min(1, 'Batch cannot be empty').optional(),
     email: z.string().trim().email('Invalid email address').optional(),
@@ -37,4 +43,41 @@ export const profileCorrectionSchema = z
   .strict();
 
 export type ProfileCorrectionInput = z.infer<typeof profileCorrectionSchema>;
+
+export const createCorrectionRequestSchema = z.object({
+  requestedChanges: z.record(z.string(), z.unknown()),
+  reason: z.string().trim().min(3, 'Reason must be at least 3 characters long'),
+});
+
+export type CreateCorrectionRequestInput = z.infer<typeof createCorrectionRequestSchema>;
+
+export const reviewCorrectionRequestSchema = z.object({
+  action: z.enum(['APPROVE', 'REJECT']),
+  remarks: z.string().trim().optional(),
+});
+
+export type ReviewCorrectionRequestInput = z.infer<typeof reviewCorrectionRequestSchema>;
+
+/**
+ * Validation schema for students completing their initial missing profile fields.
+ */
+export const completeProfileSchema = z
+  .object({
+    studentId: z.string().trim().min(1).optional(),
+    registrationNumber: z.string().trim().min(1).optional(),
+    name: z.string().trim().min(1, 'Name cannot be empty').optional(),
+    firstName: z.string().trim().min(1).optional(),
+    lastName: z.string().trim().min(1).optional(),
+    dob: z.string().trim().optional(),
+    branch: z.string().trim().min(1, 'Branch cannot be empty').optional(),
+    batch: z.string().trim().min(1, 'Batch cannot be empty').optional(),
+    email: z.string().trim().email('Invalid email address').optional(),
+    phone: z.string().trim().regex(/^\d{10}$/, 'Phone must be a valid 10-digit number').optional(),
+    marksheetUrl: z.string().trim().optional().nullable(),
+    resumeUrl: z.string().trim().optional().nullable(),
+  })
+  .strict();
+
+export type CompleteProfileInput = z.infer<typeof completeProfileSchema>;
+
 

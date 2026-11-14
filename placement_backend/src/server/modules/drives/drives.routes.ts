@@ -23,6 +23,8 @@ import {
   getDriveStats,
 } from './drives.service';
 import { buildDriveExportWorkbook } from './export.service';
+import { summarizeJobDescription } from './jd-summarizer.service';
+import { notifyEligibleStudentsForDrive } from './mail.service';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -106,6 +108,64 @@ export function createDrivesRouter(
         );
 
         res.status(201).json(created);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // POST /api/drives/summarize-jd (JD PDF or text summarizer using Gemini AI)
+  router.post(
+    '/summarize-jd',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR', 'BRANCH_COORDINATOR'),
+    (req: Request, res: Response, next: NextFunction) => {
+      upload.any()(req, res, (err: unknown) => {
+        if (err) return next(err);
+        next();
+      });
+    },
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const file =
+          req.file ??
+          (Array.isArray(req.files) && req.files.length > 0
+            ? (req.files[0] as Express.Multer.File)
+            : undefined);
+
+        const text = typeof req.body.text === 'string' ? req.body.text : undefined;
+
+        if (!file && !text) {
+          throw new PortalError('VALIDATION_ERROR', 'Please provide a JD PDF file or text content', 400);
+        }
+
+        const summary = await summarizeJobDescription({
+          buffer: file?.buffer,
+          mimetype: file?.mimetype,
+          text,
+        });
+
+        res.status(200).json(summary);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // POST /api/drives/:driveId/notify (Send broadcast email to all eligible students with sheet link)
+  router.post(
+    '/:driveId/notify',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const driveId = Array.isArray(req.params.driveId)
+          ? req.params.driveId[0]
+          : req.params.driveId;
+
+        const baseUrl = req.body.baseUrl || `${req.protocol}://${req.get('host')}`.replace(':4000', ':3000');
+        const result = await notifyEligibleStudentsForDrive(db, driveId, baseUrl);
+        res.status(200).json(result);
       } catch (err) {
         next(err);
       }

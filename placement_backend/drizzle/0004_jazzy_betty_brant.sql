@@ -1,0 +1,1 @@
+ALTER TABLE `student_profiles` ADD `isProfileComplete` integer DEFAULT false NOT NULL;

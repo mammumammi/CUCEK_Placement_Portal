@@ -84,9 +84,9 @@ describe('Registration Module (/api/registration)', () => {
   });
 
   // 2. Cover: missing column
-  it('2. missing column: flags sheet when a required header column is omitted', async () => {
-    // Exclude 'email' and 'phone' from headers
-    const incompleteHeaders = ['studentId', 'name', 'branch', 'batch', 'activeBacklogs'];
+  it('2. missing column: flags sheet when a required header column (studentId) is omitted', async () => {
+    // Exclude 'studentId' from headers
+    const incompleteHeaders = ['name', 'branch', 'batch', 'activeBacklogs'];
     const buffer = await createExcelBuffer([validStudentRow], incompleteHeaders);
 
     const res = await request(app)
@@ -97,6 +97,24 @@ describe('Registration Module (/api/registration)', () => {
     expect(res.status).toBe(200);
     expect(res.body.summary.invalid).toBe(1);
     expect(res.body.rows[0].errors.some((e: string) => e.includes('missing required column headers'))).toBe(true);
+  });
+
+  it('2b. partial profile: allows creation when optional fields like email/phone/batch are missing', async () => {
+    const partialRow = {
+      studentId: '2022BCSE777',
+      name: 'Partial Student',
+    };
+    const buffer = await createExcelBuffer([partialRow], ['studentId', 'name']);
+
+    const res = await request(app)
+      .post('/api/registration/preview')
+      .set('Cookie', adminCookie)
+      .attach('file', buffer, 'partial_profile.xlsx');
+
+    expect(res.status).toBe(200);
+    expect(res.body.summary.valid).toBe(1);
+    expect(res.body.summary.invalid).toBe(0);
+    expect(res.body.rows[0].errors).toHaveLength(0);
   });
 
   // 3. Cover: bad email
@@ -365,6 +383,212 @@ describe('Registration Module (/api/registration)', () => {
       .from(users)
       .where(eq(users.username, '2022BCSE888'));
     expect(insertedUser).toBeDefined();
+  });
+
+  // 14. Cover: analyze sheet with title banners and synonyms
+  it('14. analyze sheet: detects header row skipping title banner and maps synonyms', async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Batch_2026');
+
+    sheet.addRow(['COLLEGE OF ENGINEERING PLACEMENT ROSTER 2026']);
+    sheet.addRow([]);
+    sheet.addRow(['Reg No', 'Candidate Name', 'Dept', 'Batch', 'Mail Id', 'Mobile Number', 'Backlogs', 'Sem 1 SGPA', 'Sem 1 Credits']);
+    sheet.addRow(['2022BCSE501', 'Banner Student 1', 'CSE', '2026', 'banner1@test.edu', '9876543210', 0, 8.5, 20]);
+
+    const arrayBuffer = await workbook.xlsx.writeBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const res = await request(app)
+      .post('/api/registration/analyze')
+      .set('Cookie', adminCookie)
+      .attach('file', buffer, 'banner_sheet.xlsx');
+
+    expect(res.status).toBe(200);
+    expect(res.body.sheets).toHaveLength(1);
+    const sheetData = res.body.sheets[0];
+    expect(sheetData.sheetName).toBe('Batch_2026');
+    expect(sheetData.headerRow).toBe(3);
+    expect(sheetData.headers).toEqual([
+      'Reg No',
+      'Candidate Name',
+      'Dept',
+      'Batch',
+      'Mail Id',
+      'Mobile Number',
+      'Backlogs',
+      'Sem 1 SGPA',
+      'Sem 1 Credits',
+    ]);
+    expect(sheetData.mapping['Reg No'].field).toBe('registrationNumber');
+    expect(sheetData.mapping['Candidate Name'].field).toBe('name');
+    expect(sheetData.mapping['Dept'].field).toBe('branch');
+    expect(sheetData.mapping['Mail Id'].field).toBe('email');
+    expect(sheetData.mapping['Mobile Number'].field).toBe('phone');
+    expect(sheetData.missingRequired).toHaveLength(0);
+  });
+
+  // 15. Cover: analyze endpoint security
+  it('15. analyze endpoint: rejects student with 403 and unauthenticated with 401', async () => {
+    const buffer = await createExcelBuffer([validStudentRow]);
+
+    const studentRes = await request(app)
+      .post('/api/registration/analyze')
+      .set('Cookie', studentCookie)
+      .attach('file', buffer, 'students.xlsx');
+    expect(studentRes.status).toBe(403);
+
+    const unauthRes = await request(app)
+      .post('/api/registration/analyze')
+      .attach('file', buffer, 'students.xlsx');
+    expect(unauthRes.status).toBe(401);
+  });
+
+  // 16. Cover: preview automatically handles banner rows and header synonyms
+  it('16. preview: parses sheet with banner rows and header synonyms', async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Banner_Preview');
+
+    sheet.addRow(['COLLEGE PLACEMENT CELL']);
+    sheet.addRow([]);
+    sheet.addRow(['Reg No', 'Candidate Name', 'Dept', 'Batch', 'Mail Id', 'Mobile Number', 'Backlogs', 'Sem 1 SGPA', 'Sem 1 Credits']);
+    sheet.addRow(['2022BCSE601', 'Banner Student 601', 'CSE', '2026', 'banner601@test.edu', '9876543210', 0, 8.5, 20]);
+    sheet.addRow(['2022BCSE602', 'Banner Student 602', 'CSE', '2026', 'banner602@test.edu', '9876543211', 0, 9.0, 20]);
+
+    const arrayBuffer = await workbook.xlsx.writeBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const res = await request(app)
+      .post('/api/registration/preview')
+      .set('Cookie', adminCookie)
+      .attach('file', buffer, 'banner_preview.xlsx');
+
+    expect(res.status).toBe(200);
+    expect(res.body.summary).toEqual({
+      total: 2,
+      valid: 2,
+      invalid: 0,
+      duplicatesInFile: 0,
+      duplicatesInDb: 0,
+    });
+    expect(res.body.rows[0].data.studentId).toBe('2022BCSE601');
+    expect(res.body.rows[0].data.name).toBe('Banner Student 601');
+    expect(res.body.rows[1].data.studentId).toBe('2022BCSE602');
+  });
+
+  // 17. Cover: commit successfully registers students from banner sheet with default passwords
+  it('17. commit: creates accounts from banner sheet with registration number as default password', async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Banner_Commit');
+
+    sheet.addRow(['OFFICIAL CAMPUS RECRUITMENT 2026']);
+    sheet.addRow([]);
+    sheet.addRow(['Roll No', 'Full Name', 'Department', 'Year', 'Email ID', 'Phone Number']);
+    sheet.addRow(['2022BCSE701', 'Banner Student 701', 'CSE', '2026', 'banner701@test.edu', '9876543210']);
+
+    const arrayBuffer = await workbook.xlsx.writeBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const res = await request(app)
+      .post('/api/registration/commit')
+      .set('Cookie', adminCookie)
+      .attach('file', buffer, 'banner_commit.xlsx');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ created: 1, skipped: 0 });
+
+    const [user] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, '2022BCSE701'));
+    expect(user).toBeDefined();
+
+    const passwordValid = await verifyPassword('2022BCSE701', user.passwordHash);
+    expect(passwordValid).toBe(true);
+  });
+
+  // 18. Extracts firstName and lastName from Full Name, and derives age from DOB
+  it('18. commit: extracts firstName/lastName from name, and calculates age from DOB', async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Students');
+
+    sheet.addRow(['Register Number', 'Full Name', 'Date of Birth', 'Department', 'Batch', 'Email', 'Phone']);
+    sheet.addRow(['2022BCSE801', 'Rohan Gupta', '2004-05-15', 'CSE', '2026', 'rohan801@test.edu', '9876543210']);
+
+    const arrayBuffer = await workbook.xlsx.writeBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const res = await request(app)
+      .post('/api/registration/commit')
+      .set('Cookie', adminCookie)
+      .attach('file', buffer, 'rohan_gupta.xlsx');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ created: 1, skipped: 0 });
+
+    const [profile] = await db
+      .select()
+      .from(studentProfiles)
+      .where(eq(studentProfiles.studentId, '2022BCSE801'));
+
+    expect(profile).toBeDefined();
+    expect(profile.name).toBe('Rohan Gupta');
+    expect(profile.firstName).toBe('Rohan');
+    expect(profile.lastName).toBe('Gupta');
+    expect(profile.dob).toBe('2004-05-15');
+    expect(typeof profile.age).toBe('number');
+    expect(profile.age).toBeGreaterThanOrEqual(20);
+  });
+
+  // 19. Cover: no compulsory credits in Excel, uses branch curriculum defaults
+  it('19. allows registration with SGPA only (no credits column) using branch curriculum defaults', async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Students');
+
+    sheet.addRow(['Student ID', 'Full Name', 'Branch', 'Sem 1 SGPA', 'Sem 2 SGPA']);
+    sheet.addRow(['2022BCSE999', 'Credit Free Student', 'CSE', 8.0, 9.0]);
+
+    const arrayBuffer = await workbook.xlsx.writeBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Preview
+    const previewRes = await request(app)
+      .post('/api/registration/preview')
+      .set('Cookie', adminCookie)
+      .attach('file', buffer, 'no_credits.xlsx');
+
+    expect(previewRes.status).toBe(200);
+    expect(previewRes.body.summary.valid).toBe(1);
+    expect(previewRes.body.summary.invalid).toBe(0);
+    // CSE default: Sem 1 = 20, Sem 2 = 22 -> (20*8 + 22*9)/42 = (160+198)/42 = 8.52
+    expect(previewRes.body.rows[0].cgpa).toBe(8.52);
+
+    // Commit
+    const commitRes = await request(app)
+      .post('/api/registration/commit')
+      .set('Cookie', adminCookie)
+      .attach('file', buffer, 'no_credits.xlsx');
+
+    expect(commitRes.status).toBe(200);
+    expect(commitRes.body.created).toBe(1);
+
+    const [user] = await db.select().from(users).where(eq(users.username, '2022BCSE999'));
+    expect(user).toBeDefined();
+
+    const sems = await db
+      .select()
+      .from(semesterResults)
+      .where(eq(semesterResults.userId, user.id));
+
+    expect(sems).toHaveLength(2);
+    const s1 = sems.find((s) => s.semester === 1);
+    const s2 = sems.find((s) => s.semester === 2);
+    expect(s1?.credits).toBe(20); // Used default branch credit
+    expect(s2?.credits).toBe(22); // Used default branch credit
   });
 });
 

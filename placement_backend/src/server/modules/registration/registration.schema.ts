@@ -16,6 +16,14 @@ import {
 export const COLUMN_MAP: Record<string, string> = {
   studentid: 'studentId',
   'student id': 'studentId',
+  rollno: 'studentId',
+  'roll no': 'studentId',
+  'roll number': 'studentId',
+  registrationnumber: 'registrationNumber',
+  'registration number': 'registrationNumber',
+  regno: 'registrationNumber',
+  'reg no': 'registrationNumber',
+  'register number': 'registrationNumber',
   name: 'name',
   'student name': 'name',
   branch: 'branch',
@@ -33,7 +41,7 @@ export const COLUMN_MAP: Record<string, string> = {
   ),
 };
 
-export const REQUIRED_COLUMNS = REQUIRED_CANONICAL_KEYS;
+export const REQUIRED_COLUMNS = ['studentId'];
 
 /**
  * Zod validation schema for a single parsed student row.
@@ -41,34 +49,48 @@ export const REQUIRED_COLUMNS = REQUIRED_CANONICAL_KEYS;
  */
 export const studentRowSchema = z
   .object({
-    studentId: z
-      .string({ required_error: 'Student ID is required' })
-      .trim()
-      .min(1, 'Student ID cannot be empty'),
-    name: z
-      .string({ required_error: 'Name is required' })
-      .trim()
-      .min(1, 'Name cannot be empty'),
-    branch: z
-      .string({ required_error: 'Branch is required' })
-      .trim()
-      .min(1, 'Branch cannot be empty'),
-    batch: z
-      .string({ required_error: 'Batch is required' })
-      .trim()
-      .min(1, 'Batch cannot be empty'),
+    studentId: z.coerce.string().trim().optional().nullable(),
+    registrationNumber: z.coerce.string().trim().optional().nullable(),
+    name: z.string().trim().optional().nullable(),
+    firstName: z.string().trim().optional().nullable(),
+    lastName: z.string().trim().optional().nullable(),
+    dob: z.string().trim().optional().nullable(),
+    age: z.coerce.number().int().min(0, 'Age must be >= 0').max(120, 'Age must be <= 120').optional().nullable(),
+    branch: z.string().trim().optional().nullable(),
+    batch: z.coerce.string().trim().optional().nullable(),
     email: z
-      .string({ required_error: 'Email is required' })
+      .string()
       .trim()
-      .email('Invalid email address'),
-    phone: z
-      .string({ required_error: 'Phone is required' })
+      .optional()
+      .nullable()
+      .refine(
+        (val) => !val || z.string().email().safeParse(val).success,
+        { message: 'Invalid email address' }
+      ),
+    phone: z.coerce
+      .string()
       .trim()
-      .regex(/^\d{10}$/, 'Phone must be a valid 10-digit number'),
+      .optional()
+      .nullable()
+      .refine(
+        (val) => !val || /^\d{10}$/.test(val),
+        { message: 'Phone must be a valid 10-digit number' }
+      ),
     activeBacklogs: z.coerce
       .number({ invalid_type_error: 'Active backlogs must be an integer' })
       .int('Active backlogs must be an integer')
-      .min(0, 'Active backlogs must be >= 0'),
+      .min(0, 'Active backlogs must be >= 0')
+      .default(0),
+    totalMarks: z.coerce.number().min(0).optional(),
+    maxMarks: z.coerce.number().min(0).optional(),
+    percentage: z.coerce.number().min(0).max(100).optional(),
+    marksheetUrl: z.string().trim().optional(),
+    s1MarksheetUrl: z.string().trim().optional(),
+    s2MarksheetUrl: z.string().trim().optional(),
+    s3MarksheetUrl: z.string().trim().optional(),
+    s4MarksheetUrl: z.string().trim().optional(),
+    s5MarksheetUrl: z.string().trim().optional(),
+    s6MarksheetUrl: z.string().trim().optional(),
     s1Sgpa: z.coerce
       .number()
       .min(0, 'SGPA must be >= 0')
@@ -143,21 +165,13 @@ export const studentRowSchema = z
       .nullable(),
   })
   .superRefine((data, ctx) => {
-    // A semester's sgpa and credits must both be present or both blank
-    for (let sem = 1; sem <= 6; sem++) {
-      const sgpaKey = `s${sem}Sgpa` as keyof typeof data;
-      const creditsKey = `s${sem}Credits` as keyof typeof data;
-      const hasSgpa = data[sgpaKey] !== undefined && data[sgpaKey] !== null;
-      const hasCredits =
-        data[creditsKey] !== undefined && data[creditsKey] !== null;
-
-      if ((hasSgpa && !hasCredits) || (!hasSgpa && hasCredits)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `Semester ${sem} SGPA and credits must both be present or both blank`,
-          path: [hasSgpa ? creditsKey : sgpaKey],
-        });
-      }
+    // Either studentId or registrationNumber must be provided
+    if (!data.studentId && !data.registrationNumber) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Either Student ID or Registration Number must be provided',
+        path: ['studentId'],
+      });
     }
   });
 

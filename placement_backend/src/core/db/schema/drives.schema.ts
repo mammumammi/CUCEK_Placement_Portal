@@ -30,7 +30,10 @@ export const drives = sqliteTable(
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
     company: text('company').notNull(),
+    role: text('role'),
     description: text('description'),
+    packageCategory: text('packageCategory').default('GENERAL'), // 'GENERAL' | 'DREAM' | 'INTERNSHIP'
+    ctcLpa: real('ctcLpa'),
     jdFileUrl: text('jdFileUrl'),
     deadline: text('deadline').notNull(), // ISO UTC timestamp string
     eligibleBranches: text('eligibleBranches', { mode: 'json' })
@@ -38,6 +41,7 @@ export const drives = sqliteTable(
       .notNull(),
     minCgpa: real('minCgpa').notNull().default(0.0),
     maxActiveBacklogs: integer('maxActiveBacklogs').notNull().default(0),
+    allowBacklogs: integer('allowBacklogs', { mode: 'boolean' }).default(false),
     extraFields: text('extraFields', { mode: 'json' })
       .$type<DriveExtraField[]>()
       .default([]),

@@ -10,9 +10,25 @@ describe('normalizeHeader', () => {
 
 describe('suggestMappingDeterministic', () => {
   it('maps common variants to canonical fields', () => {
-    const { mapping } = suggestMappingDeterministic(['Reg No', 'Full Name', 'Dept', 'Mail Id', 'Mobile']);
-    expect(mapping['Reg No'].field).toBe('studentId');
+    const { mapping } = suggestMappingDeterministic([
+      'Student ID',
+      'Reg No',
+      'Full Name',
+      'First Name',
+      'Last Name',
+      'Date of Birth',
+      'Age',
+      'Dept',
+      'Mail Id',
+      'Mobile',
+    ]);
+    expect(mapping['Student ID'].field).toBe('studentId');
+    expect(mapping['Reg No'].field).toBe('registrationNumber');
     expect(mapping['Full Name'].field).toBe('name');
+    expect(mapping['First Name'].field).toBe('firstName');
+    expect(mapping['Last Name'].field).toBe('lastName');
+    expect(mapping['Date of Birth'].field).toBe('dob');
+    expect(mapping['Age'].field).toBe('age');
     expect(mapping['Dept'].field).toBe('branch');
     expect(mapping['Mail Id'].field).toBe('email');
     expect(mapping['Mobile'].field).toBe('phone');

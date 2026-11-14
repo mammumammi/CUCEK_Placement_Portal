@@ -5,7 +5,7 @@
 
 import { relations } from 'drizzle-orm';
 import { users } from './schema/users.schema';
-import { studentProfiles, semesterResults, auditLogs } from './schema/profiles.schema';
+import { studentProfiles, semesterResults, auditLogs, branchCredits } from './schema/profiles.schema';
 import { drives, applications, applicationRounds } from './schema/drives.schema';
 
 export * from './schema/users.schema';

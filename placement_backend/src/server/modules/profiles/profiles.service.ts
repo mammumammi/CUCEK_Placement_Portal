@@ -5,10 +5,16 @@
 
 import { eq, and, desc } from 'drizzle-orm';
 import type { Db } from '@/core/db/client';
-import { users, studentProfiles, semesterResults, auditLogs } from '@/core/db';
+import { users, studentProfiles, semesterResults, auditLogs, correctionRequests } from '@/core/db';
 import { PortalError } from '@/core/errors/portal-error';
 import { calculateCreditBasedCgpa } from '../cgpa/cgpa.service';
-import type { ProfileCorrectionInput } from './profiles.schema';
+import { calculateAgeFromDob } from '../registration/registration.service';
+import type {
+  ProfileCorrectionInput,
+  CreateCorrectionRequestInput,
+  ReviewCorrectionRequestInput,
+  CompleteProfileInput,
+} from './profiles.schema';
 
 export interface ProfileActor {
   id: string;
@@ -88,6 +94,103 @@ export async function getMyProfile(db: Db, userId: string) {
 }
 
 /**
+ * Updates a student's own profile with missing details (first login completion or initial profile setup).
+ * Calculates age from DOB, normalizes names, and updates isProfileComplete when all required fields are filled.
+ */
+export async function completeStudentProfile(
+  db: Db,
+  studentUserId: string,
+  input: CompleteProfileInput
+) {
+  const [existing] = await db
+    .select()
+    .from(studentProfiles)
+    .where(eq(studentProfiles.userId, studentUserId))
+    .limit(1);
+
+  if (!existing) {
+    throw new PortalError('NOT_FOUND', 'Student profile not found', 404);
+  }
+
+  let firstName = input.firstName ?? existing.firstName;
+  let lastName = input.lastName ?? existing.lastName;
+  let fullName = input.name ?? existing.name;
+
+  if (input.name && (!input.firstName || !input.lastName)) {
+    const parts = input.name.trim().split(/\s+/);
+    if (!input.firstName && parts.length > 0) firstName = parts[0];
+    if (!input.lastName && parts.length > 1) lastName = parts.slice(1).join(' ');
+  } else if (!fullName && (firstName || lastName)) {
+    fullName = [firstName, lastName].filter(Boolean).join(' ');
+  }
+
+  let age = existing.age;
+  const dob = input.dob !== undefined ? input.dob : existing.dob;
+  if (dob) {
+    const computedAge = calculateAgeFromDob(dob);
+    if (computedAge !== null) age = computedAge;
+  }
+
+  const studentId = input.studentId ?? existing.studentId;
+  const registrationNumber = input.registrationNumber !== undefined ? input.registrationNumber : existing.registrationNumber;
+  const branch = input.branch ?? existing.branch;
+  const batch = input.batch ?? existing.batch;
+  const email = input.email ?? existing.email;
+  const phone = input.phone ?? existing.phone;
+  const marksheetUrl = input.marksheetUrl !== undefined ? input.marksheetUrl : existing.marksheetUrl;
+  const resumeUrl = input.resumeUrl !== undefined ? input.resumeUrl : existing.resumeUrl;
+
+  const isComplete = Boolean(
+    fullName &&
+    branch &&
+    batch &&
+    email &&
+    phone
+  );
+
+  db.transaction((tx) => {
+    tx.update(studentProfiles)
+      .set({
+        studentId,
+        registrationNumber: registrationNumber || null,
+        name: fullName || null,
+        firstName: firstName || null,
+        lastName: lastName || null,
+        dob: dob || null,
+        age: age ?? null,
+        branch: branch || null,
+        batch: batch || null,
+        email: email || null,
+        phone: phone || null,
+        marksheetUrl: marksheetUrl || null,
+        resumeUrl: resumeUrl || null,
+        isProfileComplete: isComplete,
+      })
+      .where(eq(studentProfiles.userId, studentUserId))
+      .run();
+
+    if (branch && branch !== existing.branch) {
+      tx.update(users)
+        .set({ branch })
+        .where(eq(users.id, studentUserId))
+        .run();
+    }
+
+    tx.insert(auditLogs).values({
+      id: crypto.randomUUID(),
+      actorId: studentUserId,
+      studentUserId,
+      field: 'isProfileComplete',
+      oldValue: existing.isProfileComplete ? 'complete' : 'incomplete',
+      newValue: isComplete ? 'complete' : 'partially_updated',
+      createdAt: new Date(),
+    }).run();
+  });
+
+  return getMyProfile(db, studentUserId);
+}
+
+/**
  * Lists profiles with branch filtering for coordinators.
  * Branch coordinators are strictly forced to their assigned branch.
  */
@@ -160,6 +263,7 @@ export async function correctStudentProfile(
   }
 
   const scalarKeys: (keyof ProfileCorrectionInput)[] = [
+    'registrationNumber',
     'name',
     'branch',
     'batch',
@@ -357,5 +461,223 @@ export async function getStudentAuditLogs(
     .orderBy(desc(auditLogs.createdAt));
 
   return logs;
+}
+
+/**
+ * Creates a new student profile correction request.
+ */
+export async function createCorrectionRequest(
+  db: Db,
+  actor: ProfileActor,
+  input: CreateCorrectionRequestInput
+) {
+  if (actor.role !== 'STUDENT') {
+    throw new PortalError('FORBIDDEN', 'Only students can submit correction requests', 403);
+  }
+
+  const [profile] = await db
+    .select()
+    .from(studentProfiles)
+    .where(eq(studentProfiles.userId, actor.id))
+    .limit(1);
+
+  if (!profile) {
+    throw new PortalError('NOT_FOUND', 'Student profile not found', 404);
+  }
+
+  const id = crypto.randomUUID();
+  const now = new Date();
+
+  await db.insert(correctionRequests).values({
+    id,
+    studentUserId: actor.id,
+    studentId: profile.studentId,
+    registrationNumber: profile.registrationNumber || null,
+    studentName: profile.name,
+    branch: profile.branch || 'General',
+    requestedChanges: JSON.stringify(input.requestedChanges),
+    reason: input.reason,
+    status: 'PENDING',
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return {
+    id,
+    studentUserId: actor.id,
+    studentId: profile.studentId,
+    registrationNumber: profile.registrationNumber || null,
+    studentName: profile.name,
+    branch: profile.branch,
+    requestedChanges: input.requestedChanges,
+    reason: input.reason,
+    status: 'PENDING',
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/**
+ * Lists correction requests scoped by actor role and branch.
+ */
+export async function listCorrectionRequests(db: Db, actor: ProfileActor) {
+  let rows;
+  if (actor.role === 'STUDENT') {
+    rows = await db
+      .select()
+      .from(correctionRequests)
+      .where(eq(correctionRequests.studentUserId, actor.id))
+      .orderBy(desc(correctionRequests.createdAt));
+  } else if (actor.role === 'BRANCH_COORDINATOR') {
+    rows = await db
+      .select()
+      .from(correctionRequests)
+      .where(eq(correctionRequests.branch, actor.branch!))
+      .orderBy(desc(correctionRequests.createdAt));
+  } else {
+    rows = await db
+      .select()
+      .from(correctionRequests)
+      .orderBy(desc(correctionRequests.createdAt));
+  }
+
+  return rows.map((r) => {
+    let parsedChanges: Record<string, unknown> = {};
+    try {
+      parsedChanges = JSON.parse(r.requestedChanges);
+    } catch {
+      parsedChanges = {};
+    }
+    return {
+      ...r,
+      requestedChanges: parsedChanges,
+    };
+  });
+}
+
+/**
+ * Reviews and approves or rejects a student correction request.
+ */
+export async function reviewCorrectionRequest(
+  db: Db,
+  actor: ProfileActor,
+  requestId: string,
+  input: ReviewCorrectionRequestInput
+) {
+  if (actor.role === 'STUDENT') {
+    throw new PortalError('FORBIDDEN', 'Students cannot review correction requests', 403);
+  }
+
+  const [reqRecord] = await db
+    .select()
+    .from(correctionRequests)
+    .where(eq(correctionRequests.id, requestId))
+    .limit(1);
+
+  if (!reqRecord) {
+    throw new PortalError('NOT_FOUND', 'Correction request not found', 404);
+  }
+
+  if (actor.role === 'BRANCH_COORDINATOR' && reqRecord.branch !== actor.branch) {
+    throw new PortalError(
+      'FORBIDDEN',
+      `Access denied: request is not for your branch (${actor.branch})`,
+      403
+    );
+  }
+
+  if (reqRecord.status !== 'PENDING') {
+    throw new PortalError(
+      'VALIDATION_ERROR',
+      `This request has already been reviewed (${reqRecord.status})`,
+      400
+    );
+  }
+
+  const now = new Date();
+
+  if (input.action === 'APPROVE') {
+    let changes: Record<string, unknown> = {};
+    try {
+      changes = JSON.parse(reqRecord.requestedChanges);
+    } catch {
+      changes = {};
+    }
+
+    // Adapt changes to ProfileCorrectionInput
+    const profileInput: ProfileCorrectionInput = {};
+    if (typeof changes.name === 'string') profileInput.name = changes.name;
+    if (typeof changes.batch === 'string') profileInput.batch = changes.batch;
+    if (typeof changes.email === 'string') profileInput.email = changes.email;
+    if (typeof changes.phone === 'string') profileInput.phone = changes.phone;
+    if (typeof changes.activeBacklogs === 'number') profileInput.activeBacklogs = changes.activeBacklogs;
+    if (typeof changes.resumeUrl === 'string') profileInput.resumeUrl = changes.resumeUrl;
+
+    // Check semester changes e.g. s1Sgpa, s1Credits or semesters array
+    const semestersList: { semester: number; sgpa: number; credits: number }[] = [];
+    if (Array.isArray(changes.semesters)) {
+      for (const sem of changes.semesters) {
+        if (typeof sem.semester === 'number' && typeof sem.sgpa === 'number' && typeof sem.credits === 'number') {
+          semestersList.push(sem);
+        }
+      }
+    } else {
+      for (let sem = 1; sem <= 6; sem++) {
+        const sgpaKey = `s${sem}Sgpa`;
+        const creditsKey = `s${sem}Credits`;
+        if (typeof changes[sgpaKey] === 'number') {
+          semestersList.push({
+            semester: sem,
+            sgpa: Number(changes[sgpaKey]),
+            credits: typeof changes[creditsKey] === 'number' ? Number(changes[creditsKey]) : 20,
+          });
+        }
+      }
+    }
+
+    if (semestersList.length > 0) {
+      profileInput.semesters = semestersList;
+    }
+
+    // Apply the correction using coordinator authority
+    await correctStudentProfile(db, actor, reqRecord.studentId, profileInput);
+
+    await db
+      .update(correctionRequests)
+      .set({
+        status: 'APPROVED',
+        reviewedBy: actor.id,
+        reviewerRemarks: input.remarks || null,
+        updatedAt: now,
+      })
+      .where(eq(correctionRequests.id, requestId));
+  } else {
+    await db
+      .update(correctionRequests)
+      .set({
+        status: 'REJECTED',
+        reviewedBy: actor.id,
+        reviewerRemarks: input.remarks || null,
+        updatedAt: now,
+      })
+      .where(eq(correctionRequests.id, requestId));
+  }
+
+  const [updated] = await db
+    .select()
+    .from(correctionRequests)
+    .where(eq(correctionRequests.id, requestId));
+
+  let finalChanges: Record<string, unknown> = {};
+  try {
+    finalChanges = JSON.parse(updated.requestedChanges);
+  } catch {
+    finalChanges = {};
+  }
+
+  return {
+    ...updated,
+    requestedChanges: finalChanges,
+  };
 }
 

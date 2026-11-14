@@ -3,9 +3,9 @@
  * @module server/modules/auth/auth.service
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import type { Db } from '@/core/db/client';
-import { users } from '@/core/db/schema/users.schema';
+import { users, studentProfiles } from '@/core/db';
 import type { UserRole } from '@/core/types/roles';
 import { hashPassword, verifyPassword } from './password';
 import { signToken } from './token';
@@ -35,11 +35,33 @@ export async function login(
   db: Db,
   input: LoginInput
 ): Promise<{ user: SafeUser; token: string }> {
-  const [user] = await db
+  let [user] = await db
     .select()
     .from(users)
     .where(eq(users.username, input.username))
     .limit(1);
+
+  // If user not found by username directly, check student registrationNumber or studentId
+  if (!user) {
+    const [matchedProfile] = await db
+      .select({ userId: studentProfiles.userId })
+      .from(studentProfiles)
+      .where(
+        or(
+          eq(studentProfiles.registrationNumber, input.username),
+          eq(studentProfiles.studentId, input.username)
+        )
+      )
+      .limit(1);
+
+    if (matchedProfile) {
+      [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, matchedProfile.userId))
+        .limit(1);
+    }
+  }
 
   if (!user) {
     throw new PortalError('UNAUTHORIZED', 'Invalid username or password', 401);

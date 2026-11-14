@@ -184,5 +184,165 @@ describe('CGPA Module (/api/cgpa)', () => {
       });
     });
   });
+
+  describe('Branch Curriculum Credits (/api/cgpa/branch-credits)', () => {
+    it('returns default curriculum credits for a branch when not customized', async () => {
+      const coord = await createUser(db, {
+        username: 'cse_coord_test',
+        role: 'BRANCH_COORDINATOR',
+        branch: 'CSE',
+      });
+      const cookie = await loginAs(app, coord);
+
+      const res = await request(app)
+        .get('/api/cgpa/branch-credits?branch=CSE')
+        .set('Cookie', cookie);
+
+      expect(res.status).toBe(200);
+      expect(res.body.branch).toBe('CSE');
+      expect(res.body.credits).toHaveLength(8);
+      expect(res.body.credits[0]).toEqual({
+        branch: 'CSE',
+        semester: 1,
+        credits: 20,
+      });
+    });
+
+    it('allows branch coordinator to update credits for their own branch', async () => {
+      const coord = await createUser(db, {
+        username: 'cse_coord_test2',
+        role: 'BRANCH_COORDINATOR',
+        branch: 'CSE',
+      });
+      const cookie = await loginAs(app, coord);
+
+      const res = await request(app)
+        .put('/api/cgpa/branch-credits')
+        .set('Cookie', cookie)
+        .send({
+          branch: 'CSE',
+          credits: [
+            { semester: 1, credits: 24 },
+            { semester: 2, credits: 26 },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.branch).toBe('CSE');
+      const sem1 = res.body.credits.find((c: any) => c.semester === 1);
+      const sem2 = res.body.credits.find((c: any) => c.semester === 2);
+      expect(sem1.credits).toBe(24);
+      expect(sem2.credits).toBe(26);
+    });
+
+    it('forbids branch coordinator from setting credits for another branch', async () => {
+      const coord = await createUser(db, {
+        username: 'cse_coord_test3',
+        role: 'BRANCH_COORDINATOR',
+        branch: 'CSE',
+      });
+      const cookie = await loginAs(app, coord);
+
+      const res = await request(app)
+        .put('/api/cgpa/branch-credits')
+        .set('Cookie', cookie)
+        .send({
+          branch: 'ECE',
+          credits: [{ semester: 1, credits: 22 }],
+        });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
+    });
+
+    it('forbids students from setting curriculum credits', async () => {
+      const student = await createUser(db, {
+        username: 'student_credit_test',
+        role: 'STUDENT',
+        branch: 'CSE',
+      });
+      const cookie = await loginAs(app, student);
+
+      const res = await request(app)
+        .put('/api/cgpa/branch-credits')
+        .set('Cookie', cookie)
+        .send({
+          branch: 'CSE',
+          credits: [{ semester: 1, credits: 25 }],
+        });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('allows main coordinator (admin) to set credits centrally for any branch', async () => {
+      const admin = await createUser(db, {
+        username: 'main_admin_test',
+        role: 'MAIN_COORDINATOR',
+        branch: null,
+      });
+      const cookie = await loginAs(app, admin);
+
+      const res = await request(app)
+        .put('/api/cgpa/branch-credits')
+        .set('Cookie', cookie)
+        .send({
+          branch: 'MECH',
+          credits: [
+            { semester: 1, credits: 21 },
+            { semester: 2, credits: 23 },
+          ],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.branch).toBe('MECH');
+      const s1 = res.body.credits.find((c: any) => c.semester === 1);
+      expect(s1.credits).toBe(21);
+    });
+
+    it('recalculates student CGPA when recalculateStudents is true', async () => {
+      // 1. Create student with semester 1 and 2
+      const student = await createUser(db, {
+        username: 'recalc_student',
+        role: 'STUDENT',
+        branch: 'CIVIL',
+      });
+      await db.insert(studentProfiles).values({
+        userId: student.id,
+        studentId: 'CIVIL001',
+        cgpa: 8.0,
+      });
+      await db.insert(semesterResults).values([
+        { id: 'sem_civ_1', userId: student.id, semester: 1, credits: 10, sgpa: 8.0 },
+        { id: 'sem_civ_2', userId: student.id, semester: 2, credits: 10, sgpa: 10.0 },
+      ]);
+      // initial CGPA = (10*8 + 10*10)/20 = 9.0
+
+      const admin = await createUser(db, {
+        username: 'admin_recalc',
+        role: 'MAIN_COORDINATOR',
+      });
+      const cookie = await loginAs(app, admin);
+
+      // Change credits: Sem 1 = 30 credits, Sem 2 = 10 credits -> new CGPA = (30*8 + 10*10)/40 = 340/40 = 8.5
+      const res = await request(app)
+        .put('/api/cgpa/branch-credits')
+        .set('Cookie', cookie)
+        .send({
+          branch: 'CIVIL',
+          credits: [
+            { semester: 1, credits: 30 },
+            { semester: 2, credits: 10 },
+          ],
+          recalculateStudents: true,
+        });
+
+      expect(res.status).toBe(200);
+      const [updatedProfile] = await db
+        .select()
+        .from(studentProfiles)
+        .where(eq(studentProfiles.userId, student.id));
+      expect(updatedProfile.cgpa).toBe(8.5);
+    });
+  });
 });
 

@@ -26,7 +26,10 @@ export type DriveExtraFieldInput = z.infer<typeof driveExtraFieldSchema>;
  */
 export const createDriveSchema = z.object({
   company: z.string().trim().min(1, 'Company name is required'),
+  role: z.string().trim().optional().nullable(),
   description: z.string().trim().optional().nullable(),
+  packageCategory: z.enum(['GENERAL', 'DREAM', 'INTERNSHIP']).optional().default('GENERAL'),
+  ctcLpa: z.coerce.number().optional().nullable(),
   deadline: z
     .string()
     .trim()
@@ -60,6 +63,8 @@ export const createDriveSchema = z.object({
     .int('maxActiveBacklogs must be an integer')
     .min(0, 'maxActiveBacklogs cannot be negative')
     .default(0),
+  allowBacklogs: z.coerce.boolean().optional().default(false),
+  notifyEligible: z.coerce.boolean().optional().default(false),
   totalRounds: z.coerce
     .number()
     .int('totalRounds must be an integer')

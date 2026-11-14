@@ -72,9 +72,13 @@ export async function buildMapping(
     }
   }
 
-  const missingRequired = REQUIRED_CANONICAL_KEYS.filter(
-    (reqKey) => !mappedFields.has(reqKey)
-  );
+  const missingRequired = REQUIRED_CANONICAL_KEYS.filter((reqKey) => {
+    // If studentId is required, having either studentId or registrationNumber satisfies the requirement
+    if (reqKey === 'studentId' && (mappedFields.has('studentId') || mappedFields.has('registrationNumber'))) {
+      return false;
+    }
+    return !mappedFields.has(reqKey);
+  });
 
   return {
     mapping: mergedMapping,
@@ -88,3 +92,4 @@ function mappedCanonicalFields(
 ): void {
   fieldSet.add(field);
 }
+

@@ -19,7 +19,7 @@ export interface SheetAnalysis {
 /**
  * Extracts cell text safely, handling Excel formulas, rich text, and merged cell representations.
  */
-function extractCellText(cell: ExcelJS.Cell): string {
+export function extractCellText(cell: ExcelJS.Cell): string {
   let val: unknown = cell.value;
   if (val === null || val === undefined) {
     return '';

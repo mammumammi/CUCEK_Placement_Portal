@@ -9,6 +9,7 @@
  */
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import ExcelJS from 'exceljs';
 import {
@@ -21,21 +22,140 @@ import {
   User,
   Users,
   ShieldCheck,
+  Sparkles,
+  ArrowRight,
+  Layers,
+  Settings,
+  HelpCircle,
+  Award,
+  Check,
+  RefreshCw,
+  Building,
+  Briefcase,
+  Mail,
+  FileText,
+  Send,
+  ExternalLink,
+  Calendar,
+  Building2,
+  X,
+  ChevronRight,
 } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { RequireAuth } from '@/components/auth/require-auth';
 import {
+  analyzeBulkRegistration,
   previewBulkRegistration,
   commitBulkRegistration,
+  type AnalyzeResponse,
   type PreviewResponse,
   type CommitResponse,
 } from '@/services/registration.service';
+import {
+  getBranchCredits,
+  updateBranchCredits,
+  type BranchCreditItem,
+} from '@/services/curriculum.service';
+import {
+  listDrives,
+  createDrive,
+  summarizeJd,
+  notifyEligibleStudents,
+  type DriveItem,
+  type JdSummaryResult,
+  type NotificationResult,
+} from '@/services/drives.service';
+
+const CANONICAL_FIELD_OPTIONS = [
+  { key: 'studentId', label: 'Student ID / Roll No', required: true },
+  { key: 'registrationNumber', label: 'Registration Number', required: false },
+  { key: 'name', label: 'Full Name', required: false },
+  { key: 'firstName', label: 'First Name', required: false },
+  { key: 'lastName', label: 'Last Name', required: false },
+  { key: 'dob', label: 'Date of Birth (DOB)', required: false },
+  { key: 'age', label: 'Age', required: false },
+  { key: 'branch', label: 'Branch / Dept', required: false },
+  { key: 'batch', label: 'Batch / Year', required: false },
+  { key: 'email', label: 'Official Email', required: false },
+  { key: 'phone', label: 'Contact Phone', required: false },
+  { key: 'activeBacklogs', label: 'Active Backlogs', required: false },
+  { key: 'totalMarks', label: 'Total Marks', required: false },
+  { key: 'maxMarks', label: 'Max Marks', required: false },
+  { key: 'percentage', label: 'Percentage (%)', required: false },
+  { key: 'marksheetUrl', label: 'Marksheet Drive Link', required: false },
+  { key: 's1Sgpa', label: 'Semester 1 SGPA', required: false },
+  { key: 's1Credits', label: 'Semester 1 Credits', required: false },
+  { key: 's1MarksheetUrl', label: 'Sem 1 Marksheet Link', required: false },
+  { key: 's2Sgpa', label: 'Semester 2 SGPA', required: false },
+  { key: 's2Credits', label: 'Semester 2 Credits', required: false },
+  { key: 's2MarksheetUrl', label: 'Sem 2 Marksheet Link', required: false },
+  { key: 's3Sgpa', label: 'Semester 3 SGPA', required: false },
+  { key: 's3Credits', label: 'Semester 3 Credits', required: false },
+  { key: 's3MarksheetUrl', label: 'Sem 3 Marksheet Link', required: false },
+  { key: 's4Sgpa', label: 'Semester 4 SGPA', required: false },
+  { key: 's4Credits', label: 'Semester 4 Credits', required: false },
+  { key: 's4MarksheetUrl', label: 'Sem 4 Marksheet Link', required: false },
+  { key: 's5Sgpa', label: 'Semester 5 SGPA', required: false },
+  { key: 's5Credits', label: 'Semester 5 Credits', required: false },
+  { key: 's5MarksheetUrl', label: 'Sem 5 Marksheet Link', required: false },
+  { key: 's6Sgpa', label: 'Semester 6 SGPA', required: false },
+  { key: 's6Credits', label: 'Semester 6 Credits', required: false },
+  { key: 's6MarksheetUrl', label: 'Sem 6 Marksheet Link', required: false },
+] as const;
+
+const ALL_BRANCHES = ['CSE', 'ECE', 'MECH', 'CIVIL', 'IT', 'EE', 'AIDS', 'CHEM'] as const;
 
 export default function AdminPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
 
+  const [adminTab, setAdminTab] = useState<'upload' | 'curriculum' | 'drives'>('upload');
+
+  // Placement Drives & JD Summarizer State
+  const [drivesList, setDrivesList] = useState<DriveItem[]>([]);
+  const [isLoadingDrives, setIsLoadingDrives] = useState<boolean>(false);
+  const [jdFile, setJdFile] = useState<File | null>(null);
+  const [jdRawText, setJdRawText] = useState<string>('');
+  const [isSummarizingJd, setIsSummarizingJd] = useState<boolean>(false);
+  const [jdSummary, setJdSummary] = useState<JdSummaryResult | null>(null);
+  const [jdSummaryMsg, setJdSummaryMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Drive Form States
+  const [driveCompany, setDriveCompany] = useState<string>('');
+  const [driveRole, setDriveRole] = useState<string>('');
+  const [driveDescription, setDriveDescription] = useState<string>('');
+  const [drivePackageCategory, setDrivePackageCategory] = useState<'GENERAL' | 'DREAM' | 'INTERNSHIP'>('GENERAL');
+  const [driveCtcLpa, setDriveCtcLpa] = useState<string>('');
+  const [driveMinCgpa, setDriveMinCgpa] = useState<string>('6.5');
+  const [driveAllowBacklogs, setDriveAllowBacklogs] = useState<boolean>(false);
+  const [driveMaxActiveBacklogs, setDriveMaxActiveBacklogs] = useState<string>('0');
+  const [driveEligibleBranches, setDriveEligibleBranches] = useState<string[]>([...ALL_BRANCHES]);
+  const [driveDeadline, setDriveDeadline] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0, 16);
+  });
+  const [driveTotalRounds, setDriveTotalRounds] = useState<string>('2');
+  const [driveNotifyEligible, setDriveNotifyEligible] = useState<boolean>(true);
+  const [isCreatingDrive, setIsCreatingDrive] = useState<boolean>(false);
+  const [driveMsg, setDriveMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Email Notification Modal & Action State
+  const [notificationModalData, setNotificationModalData] = useState<NotificationResult | null>(null);
+  const [isNotifyingDriveId, setIsNotifyingDriveId] = useState<string | null>(null);
+
+  // Centralised Branch Curriculum Credits State
+  const [selectedBranch, setSelectedBranch] = useState<string>('CSE');
+  const [branchCreditsList, setBranchCreditsList] = useState<BranchCreditItem[]>([]);
+  const [isLoadingCredits, setIsLoadingCredits] = useState<boolean>(false);
+  const [isSavingCredits, setIsSavingCredits] = useState<boolean>(false);
+  const [recalculateOnSave, setRecalculateOnSave] = useState<boolean>(true);
+  const [creditsMsg, setCreditsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [analysisData, setAnalysisData] = useState<AnalyzeResponse | null>(null);
+  const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
   const [isPreviewing, setIsPreviewing] = useState<boolean>(false);
   const [isCommitting, setIsCommitting] = useState<boolean>(false);
   const [previewData, setPreviewData] = useState<PreviewResponse | null>(null);
@@ -48,10 +168,246 @@ export default function AdminPage() {
     router.push('/login');
   };
 
+  const fetchDrivesList = React.useCallback(async () => {
+    setIsLoadingDrives(true);
+    try {
+      const data = await listDrives();
+      setDrivesList(data);
+    } catch {
+      // ignore
+    } finally {
+      setIsLoadingDrives(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (adminTab === 'drives') {
+      void fetchDrivesList();
+    }
+  }, [adminTab, fetchDrivesList]);
+
+  const handleSummarizeJd = async () => {
+    if (!jdFile && !jdRawText.trim()) {
+      setJdSummaryMsg({ type: 'error', text: 'Please upload a JD PDF file or paste text content.' });
+      return;
+    }
+
+    setIsSummarizingJd(true);
+    setJdSummaryMsg(null);
+    try {
+      const res = await summarizeJd({
+        file: jdFile ?? undefined,
+        text: jdRawText.trim() ? jdRawText.trim() : undefined,
+      });
+      setJdSummary(res);
+      setDriveCompany(res.company);
+      setDriveRole(res.role);
+      setDriveDescription(res.summary);
+      setDrivePackageCategory(res.packageCategory);
+      setDriveCtcLpa(res.ctcLpa !== null ? String(res.ctcLpa) : '');
+      setDriveMinCgpa(String(res.minCgpa || 0));
+      setDriveAllowBacklogs(res.allowBacklogs);
+      setDriveMaxActiveBacklogs(String(res.maxActiveBacklogs || 0));
+      if (res.eligibleBranches && res.eligibleBranches.length > 0) {
+        setDriveEligibleBranches(res.eligibleBranches);
+      }
+      setJdSummaryMsg({
+        type: 'success',
+        text: `JD successfully analyzed! Categorized as ${res.packageCategory} (${res.packageCategory === 'DREAM' ? '≥ 7 LPA' : res.packageCategory === 'INTERNSHIP' ? 'Internship' : '< 7 LPA'}). Form fields auto-populated below.`,
+      });
+    } catch (err: unknown) {
+      const axiosErr = err as {
+        response?: { data?: { error?: { message?: string }; message?: string } };
+        message?: string;
+      };
+      setJdSummaryMsg({
+        type: 'error',
+        text: axiosErr.response?.data?.error?.message || axiosErr.response?.data?.message || 'Failed to summarize JD with AI.',
+      });
+    } finally {
+      setIsSummarizingJd(false);
+    }
+  };
+
+  const handleCreateDriveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!driveCompany.trim()) {
+      setDriveMsg({ type: 'error', text: 'Company name is required.' });
+      return;
+    }
+    if (driveEligibleBranches.length === 0) {
+      setDriveMsg({ type: 'error', text: 'Please select at least one eligible branch.' });
+      return;
+    }
+    if (!driveDeadline) {
+      setDriveMsg({ type: 'error', text: 'Deadline is required.' });
+      return;
+    }
+
+    setIsCreatingDrive(true);
+    setDriveMsg(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('company', driveCompany.trim());
+      if (driveRole.trim()) formData.append('role', driveRole.trim());
+      if (driveDescription.trim()) formData.append('description', driveDescription.trim());
+      formData.append('packageCategory', drivePackageCategory);
+      if (driveCtcLpa.trim()) formData.append('ctcLpa', driveCtcLpa.trim());
+      formData.append('minCgpa', driveMinCgpa.trim() || '0');
+      formData.append('allowBacklogs', String(driveAllowBacklogs));
+      formData.append('maxActiveBacklogs', driveAllowBacklogs ? (driveMaxActiveBacklogs.trim() || '2') : '0');
+      formData.append('eligibleBranches', JSON.stringify(driveEligibleBranches));
+      formData.append('deadline', new Date(driveDeadline).toISOString());
+      formData.append('totalRounds', driveTotalRounds.trim() || '1');
+      formData.append('notifyEligible', String(driveNotifyEligible));
+
+      if (jdFile) {
+        formData.append('file', jdFile);
+      }
+
+      const res = await createDrive(formData);
+      setDriveMsg({
+        type: 'success',
+        text: `Drive for ${res.company} created successfully!`,
+      });
+
+      if (res.notification) {
+        setNotificationModalData(res.notification);
+      }
+
+      // Reset form fields
+      setDriveCompany('');
+      setDriveRole('');
+      setDriveDescription('');
+      setDriveCtcLpa('');
+      setJdFile(null);
+      setJdRawText('');
+      setJdSummary(null);
+
+      await fetchDrivesList();
+    } catch (err: unknown) {
+      const axiosErr = err as {
+        response?: { data?: { error?: { message?: string }; message?: string } };
+        message?: string;
+      };
+      setDriveMsg({
+        type: 'error',
+        text: axiosErr.response?.data?.error?.message || axiosErr.response?.data?.message || 'Failed to create placement drive.',
+      });
+    } finally {
+      setIsCreatingDrive(false);
+    }
+  };
+
+  const handleNotifyDrive = async (driveId: string) => {
+    setIsNotifyingDriveId(driveId);
+    try {
+      const result = await notifyEligibleStudents(driveId);
+      setNotificationModalData(result);
+    } catch (err: unknown) {
+      const axiosErr = err as {
+        response?: { data?: { error?: { message?: string }; message?: string } };
+        message?: string;
+      };
+      alert(axiosErr.response?.data?.error?.message || 'Failed to dispatch email notifications.');
+    } finally {
+      setIsNotifyingDriveId(null);
+    }
+  };
+
+  const fetchBranchCredits = React.useCallback(async (branchName: string) => {
+    setIsLoadingCredits(true);
+    setCreditsMsg(null);
+    try {
+      const data = await getBranchCredits(branchName);
+      setBranchCreditsList(data.credits);
+    } catch {
+      setCreditsMsg({ type: 'error', text: `Failed to load curriculum credits for branch ${branchName}.` });
+    } finally {
+      setIsLoadingCredits(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (adminTab === 'curriculum') {
+      void fetchBranchCredits(selectedBranch);
+    }
+  }, [adminTab, selectedBranch, fetchBranchCredits]);
+
+  const handleSaveCredits = async () => {
+    setIsSavingCredits(true);
+    setCreditsMsg(null);
+    try {
+      const configs = branchCreditsList.map((c) => ({
+        semester: c.semester,
+        credits: Number(c.credits) || 0,
+      }));
+      const res = await updateBranchCredits(selectedBranch, configs, recalculateOnSave);
+      setBranchCreditsList(res.credits);
+      setCreditsMsg({
+        type: 'success',
+        text: recalculateOnSave
+          ? `Branch credits updated centrally and student CGPAs recalculated for ${selectedBranch}!`
+          : `Branch credits updated centrally for ${selectedBranch}!`,
+      });
+    } catch (err: unknown) {
+      const axiosErr = err as {
+        response?: { data?: { error?: { message?: string }; message?: string } };
+        message?: string;
+      };
+      setCreditsMsg({
+        type: 'error',
+        text: axiosErr.response?.data?.error?.message || axiosErr.response?.data?.message || 'Failed to save branch credits.',
+      });
+    } finally {
+      setIsSavingCredits(false);
+    }
+  };
+
+  const runAnalysis = async (file: File) => {
+    setIsAnalyzing(true);
+    setError(null);
+    setAnalysisData(null);
+    setColumnMapping({});
+    setPreviewData(null);
+    setCommitResult(null);
+
+    try {
+      const res = await analyzeBulkRegistration(file);
+      setAnalysisData(res);
+      if (res.sheets && res.sheets.length > 0) {
+        const primary = res.sheets[0];
+        const initialMapping: Record<string, string> = {};
+        for (const [header, match] of Object.entries(primary.mapping)) {
+          if (match.field) {
+            initialMapping[header] = match.field;
+          }
+        }
+        setColumnMapping(initialMapping);
+      }
+    } catch (err: unknown) {
+      const axiosErr = err as {
+        response?: { data?: { error?: { message?: string }; message?: string } };
+        message?: string;
+      };
+      const message =
+        axiosErr.response?.data?.error?.message ||
+        axiosErr.response?.data?.message ||
+        axiosErr.message ||
+        'Failed to analyze spreadsheet structure';
+      setError(message);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setError(null);
     setCommitResult(null);
     setPreviewData(null);
+    setAnalysisData(null);
+    setColumnMapping({});
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       if (!file.name.toLowerCase().endsWith('.xlsx')) {
@@ -59,7 +415,20 @@ export default function AdminPage() {
         return;
       }
       setSelectedFile(file);
+      void runAnalysis(file);
     }
+  };
+
+  const handleMappingChange = (header: string, canonicalField: string) => {
+    setColumnMapping((prev) => {
+      const next = { ...prev };
+      if (!canonicalField) {
+        delete next[header];
+      } else {
+        next[header] = canonicalField;
+      }
+      return next;
+    });
   };
 
   const handleDownloadTemplate = async () => {
@@ -67,22 +436,32 @@ export default function AdminPage() {
     const sheet = workbook.addWorksheet('Students');
 
     sheet.columns = [
-      { header: 'studentId', key: 'studentId', width: 16 },
-      { header: 'name', key: 'name', width: 22 },
-      { header: 'branch', key: 'branch', width: 12 },
-      { header: 'batch', key: 'batch', width: 10 },
-      { header: 'email', key: 'email', width: 26 },
-      { header: 'phone', key: 'phone', width: 16 },
-      { header: 'activeBacklogs', key: 'activeBacklogs', width: 14 },
-      { header: 's1Sgpa', key: 's1Sgpa', width: 10 },
-      { header: 's1Credits', key: 's1Credits', width: 10 },
-      { header: 's2Sgpa', key: 's2Sgpa', width: 10 },
-      { header: 's2Credits', key: 's2Credits', width: 10 },
+      { header: 'Student ID / Roll No', key: 'studentId', width: 20 },
+      { header: 'Registration Number', key: 'registrationNumber', width: 22 },
+      { header: 'Full Name', key: 'name', width: 22 },
+      { header: 'First Name', key: 'firstName', width: 15 },
+      { header: 'Last Name', key: 'lastName', width: 15 },
+      { header: 'Date of Birth', key: 'dob', width: 15 },
+      { header: 'Age', key: 'age', width: 10 },
+      { header: 'Department', key: 'branch', width: 14 },
+      { header: 'Batch', key: 'batch', width: 12 },
+      { header: 'Email ID', key: 'email', width: 26 },
+      { header: 'Contact Number', key: 'phone', width: 16 },
+      { header: 'Active Backlogs', key: 'activeBacklogs', width: 14 },
+      { header: 'Sem 1 SGPA', key: 's1Sgpa', width: 12 },
+      { header: 'Credits Sem 1', key: 's1Credits', width: 14 },
+      { header: 'Sem 2 SGPA', key: 's2Sgpa', width: 12 },
+      { header: 'Credits Sem 2', key: 's2Credits', width: 14 },
     ];
 
     sheet.addRow({
       studentId: '2022BCSE010',
+      registrationNumber: 'REG-2022-CSE-010',
       name: 'Rohan Gupta',
+      firstName: 'Rohan',
+      lastName: 'Gupta',
+      dob: '2004-04-15',
+      age: 22,
       branch: 'CSE',
       batch: '2026',
       email: 'rohan.gupta@college.edu',
@@ -97,6 +476,10 @@ export default function AdminPage() {
     sheet.addRow({
       studentId: '2022BCSE011',
       name: 'Sneha Patel',
+      firstName: 'Sneha',
+      lastName: 'Patel',
+      dob: '2004-09-22',
+      age: 22,
       branch: 'CSE',
       batch: '2026',
       email: 'sneha.patel@college.edu',
@@ -133,7 +516,7 @@ export default function AdminPage() {
     setCommitResult(null);
 
     try {
-      const data = await previewBulkRegistration(selectedFile);
+      const data = await previewBulkRegistration(selectedFile, columnMapping);
       setPreviewData(data);
     } catch (err: unknown) {
       const axiosErr = err as {
@@ -161,9 +544,14 @@ export default function AdminPage() {
     setError(null);
 
     try {
-      const res = await commitBulkRegistration(selectedFile, { skipInvalid });
+      const res = await commitBulkRegistration(selectedFile, {
+        skipInvalid,
+        mapping: columnMapping,
+      });
       setCommitResult(res);
       setPreviewData(null);
+      setAnalysisData(null);
+      setColumnMapping({});
       setSelectedFile(null);
     } catch (err: unknown) {
       const axiosErr = err as {
@@ -180,6 +568,12 @@ export default function AdminPage() {
       setIsCommitting(false);
     }
   };
+
+  const primarySheet = analysisData?.sheets?.[0];
+  const mappedFieldValues = new Set(Object.values(columnMapping));
+  const missingRequiredFields = CANONICAL_FIELD_OPTIONS.filter(
+    (field) => field.required && !mappedFieldValues.has(field.key)
+  );
 
   return (
     <RequireAuth roles={['MAIN_COORDINATOR']}>
@@ -218,18 +612,64 @@ export default function AdminPage() {
           </div>
         </header>
 
+        {/* Tab Navigation Bar */}
+        <div className="bg-white border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-8">
+            <button
+              type="button"
+              onClick={() => setAdminTab('upload')}
+              className={`py-4 px-1 inline-flex items-center gap-2 border-b-2 font-medium text-sm transition ${
+                adminTab === 'upload'
+                  ? 'border-indigo-600 text-indigo-600 font-semibold'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Upload className="h-4 w-4" />
+              Bulk Student Registration
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAdminTab('curriculum')}
+              className={`py-4 px-1 inline-flex items-center gap-2 border-b-2 font-medium text-sm transition ${
+                adminTab === 'curriculum'
+                  ? 'border-indigo-600 text-indigo-600 font-semibold'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Award className="h-4 w-4" />
+              Branch Curriculum Credits (Centralised)
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAdminTab('drives')}
+              className={`py-4 px-1 inline-flex items-center gap-2 border-b-2 font-medium text-sm transition ${
+                adminTab === 'drives'
+                  ? 'border-indigo-600 text-indigo-600 font-semibold'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Briefcase className="h-4 w-4" />
+              Placement Drives &amp; JD AI Summarizer
+            </button>
+          </div>
+        </div>
+
         {/* Main Content Area */}
         <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1">
-          {/* Header Info Banner */}
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold text-gray-900">
-              Bulk Student Registration
-            </h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Upload an Excel (.xlsx) roster to automatically create user accounts and academic profiles.
-              Each student’s <strong>Registration Number / Student ID</strong> is set as their default password.
-            </p>
-          </div>
+          {adminTab === 'upload' && (
+            <div>
+              {/* Header Info Banner */}
+              <div className="mb-8">
+                <h2 className="text-2xl font-bold text-gray-900">
+                  Bulk Student Registration
+                </h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  Upload an Excel (.xlsx) roster to automatically create user accounts and academic profiles.
+                  Each student’s <strong>Registration Number / Student ID</strong> is set as their default password.
+                </p>
+              </div>
 
           {/* Feedback Messages */}
           {error && (
@@ -307,24 +747,201 @@ export default function AdminPage() {
                   <button
                     type="button"
                     onClick={handlePreview}
-                    disabled={!selectedFile || isPreviewing || isCommitting}
+                    disabled={!selectedFile || isAnalyzing || isPreviewing || isCommitting}
                     className="flex-1 sm:flex-initial inline-flex justify-center items-center px-4 py-3 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
                   >
-                    {isPreviewing ? 'Analyzing...' : 'Preview Sheet'}
+                    {isAnalyzing
+                      ? 'Analyzing Structure...'
+                      : isPreviewing
+                      ? 'Validating Data...'
+                      : 'Analyze & Preview'}
                   </button>
                 </div>
               </div>
             </div>
           </div>
 
+          {/* Analyzing Progress Banner */}
+          {isAnalyzing && (
+            <div className="bg-white rounded-xl shadow-sm border border-indigo-100 p-6 mb-8 text-center">
+              <div className="inline-flex items-center justify-center p-3 bg-indigo-50 rounded-full text-indigo-600 mb-3 animate-bounce">
+                <Sparkles className="h-6 w-6" />
+              </div>
+              <h3 className="text-sm font-semibold text-gray-900">
+                Analyzing Spreadsheet Structure & Mapping Columns...
+              </h3>
+              <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+                Scanning worksheet rows for headers, skipping title banners, and binding column names to student profile fields.
+              </p>
+            </div>
+          )}
+
+          {/* Card: Structure Analysis & Column Mapping */}
+          {primarySheet && !isAnalyzing && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-8">
+              <div className="p-6 border-b border-gray-200 bg-linear-to-r from-indigo-50/40 via-white to-white">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-5 w-5 text-indigo-600" />
+                      <h3 className="text-base font-semibold text-gray-900">
+                        Spreadsheet Structure & Column Mapping
+                      </h3>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
+                        {primarySheet.sheetName}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Header row detected at <strong>Row {primarySheet.headerRow}</strong>
+                      {primarySheet.headerRow > 1 && ` (${primarySheet.headerRow - 1} title / banner rows skipped)`}
+                      {' • '}
+                      <strong>{Math.max(0, primarySheet.rowCount - primarySheet.headerRow)}</strong> candidate student records.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => selectedFile && runAnalysis(selectedFile)}
+                      disabled={isAnalyzing || isPreviewing}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition"
+                    >
+                      <Settings className="h-3.5 w-3.5 text-gray-500" />
+                      Re-Analyze
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePreview}
+                      disabled={isPreviewing || isCommitting || missingRequiredFields.length > 0}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition shadow-xs"
+                    >
+                      {isPreviewing ? 'Validating...' : 'Generate Preview'}
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Missing required warning */}
+                {missingRequiredFields.length > 0 ? (
+                  <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2.5 text-xs text-amber-800">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-semibold">Missing Student ID Column: </span>
+                      Please map the <strong>Student ID / Reg No</strong> column before previewing.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2.5 text-xs text-blue-800">
+                    <CheckCircle className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-semibold">Flexible Registration: </span>
+                      Missing fields (Name, Email, Phone, Batch, DOB) can be left unmapped—students will be prompted to fill them in automatically on their first login!
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Mapping Table */}
+              <div className="p-6">
+                <div className="border border-gray-200 rounded-lg overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 text-xs">
+                    <thead className="bg-gray-50 font-semibold text-gray-600">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Uploaded Excel Header</th>
+                        <th className="px-4 py-3 text-left">Mapped Canonical Field</th>
+                        <th className="px-4 py-3 text-left">Match Source</th>
+                        <th className="px-4 py-3 text-left">Confidence</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 bg-white">
+                      {primarySheet.headers.map((header) => {
+                        const match = primarySheet.mapping[header];
+                        const currentMappedVal = columnMapping[header] || '';
+
+                        return (
+                          <tr key={header} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 font-semibold text-gray-900 font-mono">
+                              {header}
+                            </td>
+                            <td className="px-4 py-3">
+                              <select
+                                value={currentMappedVal}
+                                onChange={(e) => handleMappingChange(header, e.target.value)}
+                                className="w-full max-w-xs border border-gray-300 rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                              >
+                                <option value="">-- Ignore Column --</option>
+                                <optgroup label="Required Canonical Fields">
+                                  {CANONICAL_FIELD_OPTIONS.filter((f) => f.required).map((f) => (
+                                    <option key={f.key} value={f.key}>
+                                      {f.label} *
+                                    </option>
+                                  ))}
+                                </optgroup>
+                                <optgroup label="Optional Canonical Fields">
+                                  {CANONICAL_FIELD_OPTIONS.filter((f) => !f.required).map((f) => (
+                                    <option key={f.key} value={f.key}>
+                                      {f.label}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              </select>
+                            </td>
+                            <td className="px-4 py-3">
+                              {match?.source === 'exact' ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800">
+                                  Exact Match
+                                </span>
+                              ) : match?.source === 'pattern' ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100 text-blue-800">
+                                  Pattern Match
+                                </span>
+                              ) : match?.source === 'ai' ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-100 text-purple-800">
+                                  AI Suggested
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600">
+                                  Unmatched
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-gray-500 font-mono">
+                              {match ? `${Math.round(match.confidence * 100)}%` : '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Card: Preview Results */}
           {previewData && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden space-y-6 p-6">
               {/* Summary Metrics */}
               <div>
-                <h3 className="text-base font-semibold text-gray-900 mb-3">
-                  Validation Summary
-                </h3>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-gray-900">
+                      Validation Summary
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Verified against canonical rules and existing database profiles.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setPreviewData(null)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition"
+                  >
+                    <Settings className="h-3.5 w-3.5 text-gray-500" />
+                    Adjust Column Mapping
+                  </button>
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
                     <span className="text-xs text-gray-500 block">Total Rows</span>
@@ -465,8 +1082,764 @@ export default function AdminPage() {
               </div>
             </div>
           )}
+          </div>
+        )}
+
+          {/* TAB 2: Centralised Branch Curriculum Credits */}
+          {adminTab === 'curriculum' && (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    Centralised Branch Curriculum & Credits
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Configure and test semester credit allocations for any branch centrally.
+                    Student CGPAs are dynamically computed using these branch curriculum weights.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-gray-700">Target Branch:</span>
+                    <select
+                      value={selectedBranch}
+                      onChange={(e) => setSelectedBranch(e.target.value.toUpperCase())}
+                      className="border border-gray-300 rounded-lg px-3 py-1.5 bg-white text-xs font-bold text-indigo-700 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                    >
+                      {['CSE', 'ECE', 'MECH', 'CIVIL', 'IT', 'EE', 'AIDS'].map((b) => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => fetchBranchCredits(selectedBranch)}
+                    disabled={isLoadingCredits}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition shadow-2xs"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 text-gray-500 ${isLoadingCredits ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </button>
+                </div>
+              </div>
+
+              {creditsMsg && (
+                <div
+                  className={`p-4 rounded-xl border text-sm font-medium ${
+                    creditsMsg.type === 'success'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-red-50 border-red-200 text-red-800'
+                  }`}
+                >
+                  {creditsMsg.text}
+                </div>
+              )}
+
+              {isLoadingCredits ? (
+                <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-8 text-center text-sm text-gray-500">
+                  <RefreshCw className="h-5 w-5 animate-spin mx-auto text-indigo-600 mb-2" />
+                  Loading curriculum credits for {selectedBranch}...
+                </div>
+              ) : (
+                <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6 space-y-6">
+                  <div className="flex items-center justify-between pb-4 border-b border-gray-200">
+                    <div className="flex items-center gap-2">
+                      <Building className="h-5 w-5 text-indigo-600" />
+                      <h3 className="text-base font-bold text-gray-900">
+                        {selectedBranch} Department Semester Credits
+                      </h3>
+                    </div>
+                    <span className="text-xs font-mono text-gray-500">
+                      Standard Curriculum: Sem 1 - 8
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                    {branchCreditsList.map((item, idx) => (
+                      <div
+                        key={item.semester}
+                        className="p-4 rounded-xl border border-gray-200 bg-gray-50/50 hover:bg-white hover:border-indigo-300 transition"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-bold text-gray-900 text-sm">
+                            Semester {item.semester}
+                          </span>
+                          <span className="text-[11px] font-mono text-gray-400">
+                            Sem {item.semester}
+                          </span>
+                        </div>
+                        <label className="block text-xs text-gray-500 mb-1 font-medium">
+                          Credits
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={50}
+                          value={item.credits}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value, 10);
+                            const updated = [...branchCreditsList];
+                            updated[idx] = { ...item, credits: isNaN(val) ? 0 : val };
+                            setBranchCreditsList(updated);
+                          }}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 bg-white text-sm font-mono font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={recalculateOnSave}
+                        onChange={(e) => setRecalculateOnSave(e.target.checked)}
+                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                      />
+                      <span>
+                        <strong>Recalculate {selectedBranch} Student CGPAs:</strong> Dynamically update all registered students in {selectedBranch} with new weights.
+                      </span>
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={handleSaveCredits}
+                      disabled={isSavingCredits}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 transition shadow-xs"
+                    >
+                      <Check className="h-4 w-4" />
+                      {isSavingCredits ? 'Saving Centrally...' : `Save ${selectedBranch} Curriculum Credits`}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tab 3: Placement Drives & JD AI Summarizer */}
+          {adminTab === 'drives' && (
+            <div className="space-y-8">
+              {/* Header Info Banner */}
+              <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl font-black text-gray-900 flex items-center gap-2">
+                    <Briefcase className="h-6 w-6 text-indigo-600" />
+                    Placement Drives &amp; Job Description (JD) AI Summarizer
+                  </h2>
+                  <p className="text-xs text-gray-600 mt-1 max-w-3xl">
+                    Upload recruitment JD PDFs or paste raw text. The Gemini AI engine automatically categorizes compensation packages into <strong>General (&lt; 7 LPA)</strong>, <strong>Dream (≥ 7 LPA)</strong>, and <strong>Internship</strong>, extracts CGPA &amp; supply/backlog rules, and dispatches automated invitation emails with direct spreadsheet links to all eligible students.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={fetchDrivesList}
+                  disabled={isLoadingDrives}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 transition shadow-2xs self-start md:self-auto shrink-0"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 text-gray-500 ${isLoadingDrives ? 'animate-spin' : ''}`} />
+                  Refresh Drives
+                </button>
+              </div>
+
+              {/* Main Two-Column Workflow */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                {/* Column 1: AI JD Extractor & Form (7 Cols) */}
+                <div className="lg:col-span-7 space-y-6">
+                  {/* Step 1: AI Job Description Extractor */}
+                  <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Sparkles className="h-5 w-5 text-indigo-600" />
+                      <h3 className="text-sm font-bold text-gray-900">
+                        Step 1: Upload Job Description (PDF) or Paste Text
+                      </h3>
+                    </div>
+                    <p className="text-xs text-gray-500 mb-4">
+                      Our AI model analyzes the document and auto-fills company name, role, package tier, eligibility cutoffs, and eligible branches.
+                    </p>
+
+                    <div className="space-y-4">
+                      {/* PDF Upload File Box */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          JD PDF File
+                        </label>
+                        <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center hover:border-indigo-400 transition bg-gray-50/50">
+                          <input
+                            type="file"
+                            accept=".pdf,application/pdf"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files[0]) {
+                                setJdFile(e.target.files[0]);
+                                setJdSummaryMsg(null);
+                              }
+                            }}
+                            className="hidden"
+                            id="jd-pdf-upload"
+                          />
+                          <label
+                            htmlFor="jd-pdf-upload"
+                            className="cursor-pointer flex flex-col items-center justify-center space-y-1"
+                          >
+                            <FileText className="h-8 w-8 text-indigo-500" />
+                            <span className="text-xs font-semibold text-indigo-600">
+                              {jdFile ? jdFile.name : 'Click to select or drag & drop JD PDF'}
+                            </span>
+                            <span className="text-[11px] text-gray-400">PDF up to 10MB</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Optional JD Text Box */}
+                      <div>
+                        <label className="block text-xs font-medium text-gray-700 mb-1">
+                          Or Paste JD Content Directly
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={jdRawText}
+                          onChange={(e) => {
+                            setJdRawText(e.target.value);
+                            setJdSummaryMsg(null);
+                          }}
+                          placeholder="Paste job description text here (e.g. eligibility requirements, CTC package, role details)..."
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleSummarizeJd}
+                        disabled={isSummarizingJd || (!jdFile && !jdRawText.trim())}
+                        className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 transition shadow-xs"
+                      >
+                        <Sparkles className={`h-4 w-4 ${isSummarizingJd ? 'animate-spin' : ''}`} />
+                        {isSummarizingJd ? 'Analyzing JD with Gemini AI...' : 'Analyze & Auto-Fill Form with AI'}
+                      </button>
+
+                      {/* AI Extraction Feedback Banner */}
+                      {jdSummaryMsg && (
+                        <div
+                          className={`p-3 rounded-lg border text-xs flex items-start gap-2 ${
+                            jdSummaryMsg.type === 'success'
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                              : 'bg-red-50 border-red-200 text-red-800'
+                          }`}
+                        >
+                          {jdSummaryMsg.type === 'success' ? (
+                            <CheckCircle className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                          ) : (
+                            <AlertTriangle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+                          )}
+                          <span>{jdSummaryMsg.text}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Step 2: Recruitment Drive Configuration Form */}
+                  <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Building2 className="h-5 w-5 text-indigo-600" />
+                      <h3 className="text-sm font-bold text-gray-900">
+                        Step 2: Review Drive Details &amp; Eligibility Criteria
+                      </h3>
+                    </div>
+
+                    <form onSubmit={handleCreateDriveSubmit} className="space-y-4">
+                      {/* Company & Role */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-800 mb-1">
+                            Company Name <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={driveCompany}
+                            onChange={(e) => setDriveCompany(e.target.value)}
+                            placeholder="e.g. Google, Microsoft, Infosys"
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-xs font-medium placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-800 mb-1">
+                            Job Role / Designation
+                          </label>
+                          <input
+                            type="text"
+                            value={driveRole}
+                            onChange={(e) => setDriveRole(e.target.value)}
+                            placeholder="e.g. Software Engineer, Analyst"
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-xs font-medium placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Package Category & CTC LPA */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-800 mb-1">
+                            Package Category <span className="text-red-500">*</span>
+                          </label>
+                          <select
+                            value={drivePackageCategory}
+                            onChange={(e) => {
+                              const cat = e.target.value as 'GENERAL' | 'DREAM' | 'INTERNSHIP';
+                              setDrivePackageCategory(cat);
+                            }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-xs font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          >
+                            <option value="GENERAL">💼 General (&lt; 7 LPA)</option>
+                            <option value="DREAM">★ Dream (≥ 7 LPA)</option>
+                            <option value="INTERNSHIP">⏳ Internship / Stipend</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-800 mb-1">
+                            Package CTC (in LPA)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={driveCtcLpa}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setDriveCtcLpa(val);
+                              const num = parseFloat(val);
+                              if (!isNaN(num) && drivePackageCategory !== 'INTERNSHIP') {
+                                if (num >= 7) {
+                                  setDrivePackageCategory('DREAM');
+                                } else {
+                                  setDrivePackageCategory('GENERAL');
+                                }
+                              }
+                            }}
+                            placeholder="e.g. 12.5"
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-xs font-semibold font-mono placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Cutoff CGPA & Backlog / Supply Policy */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-800 mb-1">
+                            Minimum CGPA Cutoff
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max="10"
+                            value={driveMinCgpa}
+                            onChange={(e) => setDriveMinCgpa(e.target.value)}
+                            placeholder="e.g. 7.0 (0 for no cutoff)"
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-xs font-mono font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-800 mb-1">
+                            Selection Rounds Count
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="10"
+                            value={driveTotalRounds}
+                            onChange={(e) => setDriveTotalRounds(e.target.value)}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-xs font-mono font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Supply / Backlogs Policy Toggle */}
+                      <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-gray-800">
+                          <input
+                            type="checkbox"
+                            checked={driveAllowBacklogs}
+                            onChange={(e) => setDriveAllowBacklogs(e.target.checked)}
+                            className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                          />
+                          <span>Allow candidates with active backlogs / supply</span>
+                        </label>
+
+                        {driveAllowBacklogs && (
+                          <div className="pt-2 border-t border-gray-200 flex items-center gap-3">
+                            <span className="text-xs text-gray-600 font-medium">
+                              Maximum Allowed Active Backlogs:
+                            </span>
+                            <input
+                              type="number"
+                              min="1"
+                              max="10"
+                              value={driveMaxActiveBacklogs}
+                              onChange={(e) => setDriveMaxActiveBacklogs(e.target.value)}
+                              className="w-20 border border-gray-300 rounded-md px-2 py-1 bg-white text-black text-xs font-mono font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Eligible Departments / Branches Multi-Select */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="block text-xs font-semibold text-gray-800">
+                            Eligible Branches / Departments <span className="text-red-500">*</span>
+                          </label>
+                          <div className="flex items-center gap-2 text-[11px]">
+                            <button
+                              type="button"
+                              onClick={() => setDriveEligibleBranches([...ALL_BRANCHES])}
+                              className="text-indigo-600 hover:text-indigo-800 font-semibold underline"
+                            >
+                              Select All
+                            </button>
+                            <span className="text-gray-300">|</span>
+                            <button
+                              type="button"
+                              onClick={() => setDriveEligibleBranches([])}
+                              className="text-gray-500 hover:text-gray-700 underline"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {ALL_BRANCHES.map((b) => {
+                            const isSelected = driveEligibleBranches.includes(b);
+                            return (
+                              <button
+                                key={b}
+                                type="button"
+                                onClick={() => {
+                                  if (isSelected) {
+                                    setDriveEligibleBranches(driveEligibleBranches.filter((x) => x !== b));
+                                  } else {
+                                    setDriveEligibleBranches([...driveEligibleBranches, b]);
+                                  }
+                                }}
+                                className={`px-3 py-1 rounded-lg text-xs font-bold transition border ${
+                                  isSelected
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                                }`}
+                              >
+                                {b}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Application Deadline */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-800 mb-1">
+                          Application Deadline <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="datetime-local"
+                          required
+                          value={driveDeadline}
+                          onChange={(e) => setDriveDeadline(e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                        />
+                      </div>
+
+                      {/* Job Description / Summary */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-800 mb-1">
+                          Job Summary &amp; Overview
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={driveDescription}
+                          onChange={(e) => setDriveDescription(e.target.value)}
+                          placeholder="Summary of responsibilities, requirements, and candidate expectations..."
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                        />
+                      </div>
+
+                      {/* Broadcast Email Option */}
+                      <div className="p-3 bg-indigo-50/70 rounded-lg border border-indigo-100 flex items-start gap-2.5">
+                        <input
+                          type="checkbox"
+                          id="drive-notify-email"
+                          checked={driveNotifyEligible}
+                          onChange={(e) => setDriveNotifyEligible(e.target.checked)}
+                          className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 mt-0.5"
+                        />
+                        <label
+                          htmlFor="drive-notify-email"
+                          className="cursor-pointer text-xs text-indigo-950 leading-relaxed font-medium"
+                        >
+                          <strong>Broadcast invitation email to all eligible students:</strong> Automatically filters students by branch, CGPA, and supply criteria and sends them the application sheet link.
+                        </label>
+                      </div>
+
+                      {driveMsg && (
+                        <div
+                          className={`p-3 rounded-lg border text-xs flex items-start gap-2 ${
+                            driveMsg.type === 'success'
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                              : 'bg-red-50 border-red-200 text-red-800'
+                          }`}
+                        >
+                          {driveMsg.type === 'success' ? (
+                            <CheckCircle className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                          ) : (
+                            <AlertTriangle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+                          )}
+                          <span>{driveMsg.text}</span>
+                        </div>
+                      )}
+
+                      <button
+                        type="submit"
+                        disabled={isCreatingDrive}
+                        className="inline-flex items-center justify-center gap-2 w-full py-3 px-5 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 transition shadow-sm"
+                      >
+                        <Briefcase className="h-4 w-4" />
+                        {isCreatingDrive ? 'Publishing Placement Drive...' : 'Publish Placement Drive & Launch Spreadsheet'}
+                      </button>
+                    </form>
+                  </div>
+                </div>
+
+                {/* Column 2: Published Placement Drives (5 Cols) */}
+                <div className="lg:col-span-5 space-y-4">
+                  <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6">
+                    <div className="flex items-center justify-between border-b border-gray-200 pb-3 mb-4">
+                      <div className="flex items-center gap-2">
+                        <Building className="h-5 w-5 text-indigo-600" />
+                        <h3 className="text-sm font-bold text-gray-900">
+                          Published Recruitment Drives
+                        </h3>
+                      </div>
+                      <span className="text-xs font-bold px-2.5 py-0.5 bg-gray-100 text-gray-700 rounded-full">
+                        {drivesList.length} Listed
+                      </span>
+                    </div>
+
+                    {isLoadingDrives && drivesList.length === 0 ? (
+                      <div className="py-12 text-center text-xs text-gray-500">
+                        <RefreshCw className="h-6 w-6 text-indigo-500 animate-spin mx-auto mb-2" />
+                        Loading published drives...
+                      </div>
+                    ) : drivesList.length === 0 ? (
+                      <div className="py-12 text-center text-xs text-gray-500">
+                        No placement drives published yet. Create your first drive using the form.
+                      </div>
+                    ) : (
+                      <div className="space-y-4 max-h-[800px] overflow-y-auto pr-1">
+                        {drivesList.map((d) => (
+                          <div
+                            key={d.id}
+                            className="p-4 rounded-xl border border-gray-200 bg-gray-50/60 hover:bg-white hover:border-indigo-300 transition shadow-2xs space-y-3"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <h4 className="font-bold text-gray-900 text-sm">{d.company}</h4>
+                                {d.role && <p className="text-xs text-gray-600">{d.role}</p>}
+                              </div>
+                              {d.packageCategory === 'DREAM' ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                  ★ Dream
+                                </span>
+                              ) : d.packageCategory === 'INTERNSHIP' ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
+                                  ⏳ Internship
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+                                  💼 General
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-[11px] text-gray-600 bg-white p-2.5 rounded-lg border border-gray-100">
+                              <div>
+                                <span className="text-gray-400 block">Package:</span>
+                                <span className="font-bold text-emerald-700 font-mono">
+                                  {d.ctcLpa !== null ? `${d.ctcLpa} LPA` : 'As per policy'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-400 block">Min CGPA:</span>
+                                <span className="font-semibold text-gray-900">
+                                  {d.minCgpa > 0 ? d.minCgpa : 'None'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-400 block">Backlogs / Supply:</span>
+                                <span className={`font-semibold ${d.allowBacklogs ? 'text-amber-700' : 'text-emerald-700'}`}>
+                                  {d.allowBacklogs ? `Allowed (≤ ${d.maxActiveBacklogs})` : 'Zero Only'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-400 block">Rounds:</span>
+                                <span className="font-semibold text-gray-900">
+                                  {d.totalRounds} Round{d.totalRounds === 1 ? '' : 's'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="text-[11px] text-gray-500">
+                              <span className="font-medium text-gray-700">Eligible: </span>
+                              {d.eligibleBranches.join(', ')}
+                            </div>
+
+                            <div className="text-[11px] text-gray-400">
+                              Deadline: {new Date(d.deadline).toLocaleString()}
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="pt-2 border-t border-gray-200 flex flex-wrap items-center gap-2">
+                              <Link
+                                href={`/drives/${d.id}`}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition shadow-2xs"
+                              >
+                                <FileText className="h-3.5 w-3.5" />
+                                Open Application Sheet
+                              </Link>
+
+                              <button
+                                type="button"
+                                onClick={() => handleNotifyDrive(d.id)}
+                                disabled={isNotifyingDriveId === d.id}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition"
+                              >
+                                <Mail className={`h-3.5 w-3.5 ${isNotifyingDriveId === d.id ? 'animate-spin' : ''}`} />
+                                {isNotifyingDriveId === d.id ? 'Sending...' : 'Broadcast Email'}
+                              </button>
+
+                              <a
+                                href={`http://localhost:4000/api/drives/${d.id}/export`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-200 transition"
+                              >
+                                <Download className="h-3.5 w-3.5 text-gray-500" />
+                                Export Excel
+                              </a>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Email Notification Broadcast Modal */}
+              {notificationModalData && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+                  <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-gray-200">
+                    <div className="p-6 border-b border-gray-200 flex items-center justify-between bg-linear-to-r from-indigo-50 via-white to-indigo-50/30">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 bg-indigo-100 text-indigo-700 rounded-xl">
+                          <Mail className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-bold text-gray-900">
+                            Broadcast Announcement Email Delivered
+                          </h3>
+                          <p className="text-xs text-gray-500">
+                            {notificationModalData.driveTitle}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setNotificationModalData(null)}
+                        className="text-gray-400 hover:text-gray-600 p-1 rounded-md"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+
+                    <div className="p-6 space-y-4 text-xs">
+                      <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-emerald-900 flex items-center justify-between">
+                        <div>
+                          <span className="font-bold block text-sm">
+                            {notificationModalData.sentCount} Invitations Dispatched
+                          </span>
+                          <span className="text-xs text-emerald-700">
+                            Delivered to all {notificationModalData.totalEligible} eligible students matching the drive criteria.
+                          </span>
+                        </div>
+                        <span className="font-mono text-xs font-bold px-2.5 py-1 bg-emerald-200/60 text-emerald-800 rounded-lg">
+                          100% Success
+                        </span>
+                      </div>
+
+                      <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                        <span className="text-gray-500 block font-medium">Application Sheet Link Sent in Email:</span>
+                        <a
+                          href={`http://localhost:3000/drives/${notificationModalData.driveId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-600 font-mono font-bold hover:underline mt-1 block truncate"
+                        >
+                          http://localhost:3000/drives/{notificationModalData.driveId}
+                        </a>
+                      </div>
+
+                      <div>
+                        <h4 className="font-bold text-gray-900 mb-2">
+                          Notified Eligible Candidates ({notificationModalData.recipients.length}):
+                        </h4>
+                        <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-lg">
+                          <table className="min-w-full divide-y divide-gray-200 text-xs">
+                            <thead className="bg-gray-50 text-gray-600 font-semibold sticky top-0">
+                              <tr>
+                                <th className="px-3 py-2 text-left">Student Name</th>
+                                <th className="px-3 py-2 text-left">Roll Number</th>
+                                <th className="px-3 py-2 text-left">Branch</th>
+                                <th className="px-3 py-2 text-left">CGPA</th>
+                                <th className="px-3 py-2 text-left">Email Address</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200 bg-white">
+                              {notificationModalData.recipients.map((r) => (
+                                <tr key={r.studentId} className="hover:bg-gray-50">
+                                  <td className="px-3 py-2 font-medium text-gray-900">{r.name}</td>
+                                  <td className="px-3 py-2 font-mono text-gray-600">{r.studentId}</td>
+                                  <td className="px-3 py-2 font-bold text-indigo-700">{r.branch}</td>
+                                  <td className="px-3 py-2 font-bold text-emerald-700">{r.cgpa.toFixed(2)}</td>
+                                  <td className="px-3 py-2 font-mono text-gray-500">{r.email}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="pt-2 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setNotificationModalData(null)}
+                          className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg text-xs transition"
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </main>
       </div>
     </RequireAuth>
   );
 }
+

@@ -7,13 +7,22 @@ import { Router } from 'express';
 import type { Request, Response, NextFunction } from 'express';
 import type { Db } from '@/core/db/client';
 import { requireAuth, requireRoles } from '../auth/auth.middleware';
-import { profileCorrectionSchema } from './profiles.schema';
+import {
+  profileCorrectionSchema,
+  createCorrectionRequestSchema,
+  reviewCorrectionRequestSchema,
+  completeProfileSchema,
+} from './profiles.schema';
 import {
   getMyProfile,
+  completeStudentProfile,
   getProfileByStudentId,
   listProfiles,
   correctStudentProfile,
   getStudentAuditLogs,
+  createCorrectionRequest,
+  listCorrectionRequests,
+  reviewCorrectionRequest,
 } from './profiles.service';
 
 /**
@@ -40,6 +49,22 @@ export function createProfilesRouter(db: Db): Router {
     }
   );
 
+  // PATCH /api/profiles/me (STUDENT only: complete initial profile missing fields)
+  router.patch(
+    '/me',
+    requireAuth,
+    requireRoles('STUDENT'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const input = completeProfileSchema.parse(req.body);
+        const profile = await completeStudentProfile(db, req.user!.id, input);
+        res.status(200).json(profile);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
   // GET /api/profiles (Coordinators only, branch query filter)
   router.get(
     '/',
@@ -51,6 +76,76 @@ export function createProfilesRouter(db: Db): Router {
           typeof req.query.branch === 'string' ? req.query.branch : undefined;
         const profiles = await listProfiles(db, req.user!, branchQuery);
         res.status(200).json(profiles);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // POST /api/profiles/correction-requests (STUDENT only)
+  router.post(
+    '/correction-requests',
+    requireAuth,
+    requireRoles('STUDENT'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const input = createCorrectionRequestSchema.parse(req.body);
+        const result = await createCorrectionRequest(
+          db,
+          {
+            id: req.user!.id,
+            role: req.user!.role,
+            branch: req.user!.branch,
+          },
+          input
+        );
+        res.status(201).json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // GET /api/profiles/correction-requests (All authenticated roles, scoped by service)
+  router.get(
+    '/correction-requests',
+    requireAuth,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const results = await listCorrectionRequests(db, {
+          id: req.user!.id,
+          role: req.user!.role,
+          branch: req.user!.branch,
+        });
+        res.status(200).json(results);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // PATCH /api/profiles/correction-requests/:requestId/review (Coordinators only)
+  router.patch(
+    '/correction-requests/:requestId/review',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR', 'BRANCH_COORDINATOR'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const requestId = Array.isArray(req.params.requestId)
+          ? req.params.requestId[0]
+          : req.params.requestId;
+        const input = reviewCorrectionRequestSchema.parse(req.body);
+        const result = await reviewCorrectionRequest(
+          db,
+          {
+            id: req.user!.id,
+            role: req.user!.role,
+            branch: req.user!.branch,
+          },
+          requestId,
+          input
+        );
+        res.status(200).json(result);
       } catch (err) {
         next(err);
       }

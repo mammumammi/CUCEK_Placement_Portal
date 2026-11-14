@@ -12,6 +12,8 @@ import { createTestDb } from '@/test/test-db';
 import { createUser, loginAs } from '@/test/seed';
 import { users, studentProfiles, semesterResults, auditLogs } from '@/core/db';
 import type { Db } from '@/core/db/client';
+import { hashPassword } from '../auth/password';
+import { signToken } from '../auth/token';
 import { correctStudentProfile } from './profiles.service';
 
 describe('Profiles Module (/api/profiles)', () => {
@@ -528,6 +530,124 @@ describe('Profiles Module (/api/profiles)', () => {
       const branchLog = logs.find((l) => l.field === 'branch');
       expect(branchLog?.oldValue).toBe('CSE');
       expect(branchLog?.newValue).toBe('MECH');
+    });
+  });
+
+  describe('Correction Requests Flow', () => {
+    it('allows student to submit correction request and coordinator to approve it', async () => {
+      // 1. Student submits correction request
+      const submitRes = await request(app)
+        .post('/api/profiles/correction-requests')
+        .set('Cookie', cseStudentCookie)
+        .send({
+          requestedChanges: { phone: '9999888877' },
+          reason: 'Changed primary contact phone number',
+        });
+
+      expect(submitRes.status).toBe(201);
+      expect(submitRes.body.status).toBe('PENDING');
+      expect(submitRes.body.studentId).toBe(cseStudentId);
+      const requestId = submitRes.body.id;
+
+      // 2. Coordinator views branch correction requests
+      const listRes = await request(app)
+        .get('/api/profiles/correction-requests')
+        .set('Cookie', cseCookie);
+
+      expect(listRes.status).toBe(200);
+      expect(listRes.body.some((r: { id: string }) => r.id === requestId)).toBe(true);
+
+      // 3. ECE coordinator cannot review CSE request
+      const unauthorizedReview = await request(app)
+        .patch(`/api/profiles/correction-requests/${requestId}/review`)
+        .set('Cookie', eceCookie)
+        .send({ action: 'APPROVE', remarks: 'Not my student' });
+      expect(unauthorizedReview.status).toBe(403);
+
+      // 4. CSE coordinator approves request
+      const reviewRes = await request(app)
+        .patch(`/api/profiles/correction-requests/${requestId}/review`)
+        .set('Cookie', cseCookie)
+        .send({ action: 'APPROVE', remarks: 'Verified with official records' });
+
+      expect(reviewRes.status).toBe(200);
+      expect(reviewRes.body.status).toBe('APPROVED');
+
+      // 5. Verify student profile phone was updated
+      const [updatedProfile] = await db
+        .select()
+        .from(studentProfiles)
+        .where(eq(studentProfiles.studentId, cseStudentId));
+      expect(updatedProfile.phone).toBe('9999888877');
+    });
+
+    it('allows coordinator to reject correction request without altering profile', async () => {
+      const submitRes = await request(app)
+        .post('/api/profiles/correction-requests')
+        .set('Cookie', cseStudentCookie)
+        .send({
+          requestedChanges: { activeBacklogs: 5 },
+          reason: 'Typo correction',
+        });
+      const requestId = submitRes.body.id;
+
+      const rejectRes = await request(app)
+        .patch(`/api/profiles/correction-requests/${requestId}/review`)
+        .set('Cookie', cseCookie)
+        .send({ action: 'REJECT', remarks: 'Disapproved by department head' });
+
+      expect(rejectRes.status).toBe(200);
+      expect(rejectRes.body.status).toBe('REJECTED');
+
+      // Profile remains untouched
+      const [profile] = await db
+        .select()
+        .from(studentProfiles)
+        .where(eq(studentProfiles.studentId, cseStudentId));
+      expect(profile.activeBacklogs).toBe(0);
+    });
+
+    it('PATCH /api/profiles/me allows student to complete missing fields on first login', async () => {
+      // Create an incomplete student profile
+      const incStudentId = '2022BCSE998';
+      const incUser = await createUser(db, {
+        username: incStudentId,
+        role: 'STUDENT',
+        branch: 'CSE',
+      });
+      await db.insert(studentProfiles).values({
+        userId: incUser.id,
+        studentId: incStudentId,
+        branch: 'CSE',
+        activeBacklogs: 0,
+        cgpa: 0,
+        isProfileComplete: false,
+        createdAt: new Date(),
+      });
+
+      const incCookie = await loginAs(app, incUser);
+
+      // Complete profile with missing fields
+      const patchRes = await request(app)
+        .patch('/api/profiles/me')
+        .set('Cookie', incCookie)
+        .send({
+          name: 'Pooja Roy',
+          email: 'pooja.roy@college.edu',
+          phone: '9876543210',
+          batch: '2026',
+          dob: '2004-06-15',
+          marksheetUrl: 'https://drive.google.com/file/d/1PoojaMarksheet/view',
+        });
+
+      expect(patchRes.status).toBe(200);
+      expect(patchRes.body.name).toBe('Pooja Roy');
+      expect(patchRes.body.firstName).toBe('Pooja');
+      expect(patchRes.body.lastName).toBe('Roy');
+      expect(patchRes.body.email).toBe('pooja.roy@college.edu');
+      expect(patchRes.body.phone).toBe('9876543210');
+      expect(patchRes.body.isProfileComplete).toBe(true);
+      expect(patchRes.body.age).toBeGreaterThan(18);
     });
   });
 });

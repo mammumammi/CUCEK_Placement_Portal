@@ -18,13 +18,22 @@ export const studentProfiles = sqliteTable(
       .primaryKey()
       .references(() => users.id, { onDelete: 'cascade' }),
     studentId: text('studentId').notNull().unique(),
+    registrationNumber: text('registrationNumber'),
     name: text('name'),
+    firstName: text('firstName'),
+    lastName: text('lastName'),
+    dob: text('dob'),
+    age: integer('age'),
     branch: text('branch'),
     batch: text('batch'),
     email: text('email'),
     phone: text('phone'),
     activeBacklogs: integer('activeBacklogs').notNull().default(0),
     cgpa: real('cgpa').notNull().default(0),
+    totalMarks: real('totalMarks'),
+    maxMarks: real('maxMarks'),
+    percentage: real('percentage'),
+    marksheetUrl: text('marksheetUrl'),
     resumeUrl: text('resumeUrl'),
     s1MarksheetUrl: text('s1MarksheetUrl'),
     s2MarksheetUrl: text('s2MarksheetUrl'),
@@ -32,6 +41,9 @@ export const studentProfiles = sqliteTable(
     s4MarksheetUrl: text('s4MarksheetUrl'),
     s5MarksheetUrl: text('s5MarksheetUrl'),
     s6MarksheetUrl: text('s6MarksheetUrl'),
+    isProfileComplete: integer('isProfileComplete', { mode: 'boolean' })
+      .notNull()
+      .default(false),
     createdAt: integer('createdAt', { mode: 'timestamp' })
       .notNull()
       .default(sql`(unixepoch())`),
@@ -56,6 +68,10 @@ export const semesterResults = sqliteTable(
     semester: integer('semester').notNull(),
     credits: integer('credits').notNull().default(0),
     sgpa: real('sgpa').notNull().default(0.0),
+    totalMarks: real('totalMarks'),
+    maxMarks: real('maxMarks'),
+    percentage: real('percentage'),
+    marksheetUrl: text('marksheetUrl'),
     createdAt: integer('createdAt', { mode: 'timestamp' })
       .notNull()
       .default(sql`(unixepoch())`),
@@ -100,3 +116,67 @@ export type NewSemesterResult = InferInsertModel<typeof semesterResults>;
 
 export type AuditLog = InferSelectModel<typeof auditLogs>;
 export type NewAuditLog = InferInsertModel<typeof auditLogs>;
+
+/**
+ * Student profile correction requests table.
+ * Submitted by students and reviewed/approved by branch coordinators.
+ */
+export const correctionRequests = sqliteTable(
+  'correction_requests',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    studentUserId: text('studentUserId')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    studentId: text('studentId').notNull(),
+    registrationNumber: text('registrationNumber'),
+    studentName: text('studentName'),
+    branch: text('branch').notNull(),
+    requestedChanges: text('requestedChanges').notNull(),
+    reason: text('reason').notNull(),
+    status: text('status').notNull().default('PENDING'),
+    reviewedBy: text('reviewedBy').references(() => users.id),
+    reviewerRemarks: text('reviewerRemarks'),
+    createdAt: integer('createdAt', { mode: 'timestamp' })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    updatedAt: integer('updatedAt', { mode: 'timestamp' })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    index('correction_requests_student_user_id_idx').on(table.studentUserId),
+    index('correction_requests_branch_idx').on(table.branch),
+    index('correction_requests_status_idx').on(table.status),
+  ]
+);
+
+export type CorrectionRequest = InferSelectModel<typeof correctionRequests>;
+export type NewCorrectionRequest = InferInsertModel<typeof correctionRequests>;
+
+/**
+ * Branch credits configuration table for semester curriculum credits.
+ */
+export const branchCredits = sqliteTable(
+  'branch_credits',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    branch: text('branch').notNull(),
+    semester: integer('semester').notNull(),
+    credits: integer('credits').notNull().default(20),
+    updatedAt: integer('updatedAt', { mode: 'timestamp' })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [
+    uniqueIndex('branch_credits_branch_sem_idx').on(table.branch, table.semester),
+    index('branch_credits_branch_idx').on(table.branch),
+  ]
+);
+
+export type BranchCredit = InferSelectModel<typeof branchCredits>;
+export type NewBranchCredit = InferInsertModel<typeof branchCredits>;

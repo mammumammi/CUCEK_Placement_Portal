@@ -7,6 +7,8 @@
  */
 
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { z } from 'zod';
 import { GoogleGenAI, Type } from '@google/genai';
 import { CANONICAL_FIELDS } from './canonical-fields';
@@ -184,27 +186,105 @@ export async function suggestMappingWithAi(
     return combined;
   }
 
-  // 3. Resolve client or verify API key
+  // 3. Resolve client or verify API key / credentials
   let client = deps?.client;
   if (!client) {
     const apiKey = env.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-    if (!apiKey || apiKey.trim() === '') {
-      console.warn(
-        'GEMINI_API_KEY is missing; returning all-null mapping without calling AI.'
-      );
-      return allNullResult(unmatchedHeaders);
+    const credsRaw = env.GEMINI_CREDENTIALS || process.env.GEMINI_CREDENTIALS;
+
+    if (apiKey && apiKey.trim() !== '') {
+      try {
+        client = new GoogleGenAI({ apiKey }) as unknown as GenAiClient;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn('Failed to initialize GoogleGenAI with GEMINI_API_KEY:', msg);
+      }
+    } else if (credsRaw && credsRaw.trim() !== '') {
+      try {
+        let credsObj: Record<string, unknown> | null = null;
+        const trimmed = credsRaw.trim();
+        if (trimmed.startsWith('{')) {
+          try {
+            credsObj = JSON.parse(trimmed);
+          } catch {
+            try {
+              // Handle unescaped newlines inside string literals from .env
+              const sanitized = trimmed.replace(/\r?\n/g, '\\n');
+              credsObj = JSON.parse(sanitized);
+            } catch {
+              // Fall through to disk search
+            }
+          }
+        } else if (fs.existsSync(trimmed)) {
+          credsObj = JSON.parse(fs.readFileSync(trimmed, 'utf-8'));
+        }
+
+        if (credsObj) {
+          if (typeof credsObj.api_key === 'string' || typeof credsObj.apiKey === 'string') {
+            const key = (credsObj.api_key || credsObj.apiKey) as string;
+            client = new GoogleGenAI({ apiKey: key }) as unknown as GenAiClient;
+          } else if (credsObj.project_id && credsObj.client_email) {
+            // Google Cloud Vertex AI Service Account
+            client = new GoogleGenAI({
+              vertexai: true,
+              project: String(credsObj.project_id),
+              location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+              googleAuthOptions: {
+                credentials: credsObj,
+              },
+            }) as unknown as GenAiClient;
+          } else {
+            client = new GoogleGenAI({
+              googleAuthOptions: {
+                credentials: credsObj,
+              },
+            }) as unknown as GenAiClient;
+          }
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn('Failed to initialize GoogleGenAI with GEMINI_CREDENTIALS:', msg);
+      }
     }
-    try {
-      client = new GoogleGenAI({ apiKey }) as unknown as GenAiClient;
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn('Failed to initialize GoogleGenAI client:', msg);
+
+    // Disk fallback if client still not initialized
+    if (!client) {
+      const candidatePaths = [
+        path.resolve(process.cwd(), 'gemini-credentials.json'),
+        path.resolve(process.cwd(), 'placement_backend/gemini-credentials.json'),
+      ];
+      for (const localCredsPath of candidatePaths) {
+        if (fs.existsSync(localCredsPath)) {
+          try {
+            const credsObj = JSON.parse(fs.readFileSync(localCredsPath, 'utf-8'));
+            if (credsObj.project_id && credsObj.client_email) {
+              client = new GoogleGenAI({
+                vertexai: true,
+                project: String(credsObj.project_id),
+                location: process.env.GOOGLE_CLOUD_LOCATION || 'us-central1',
+                googleAuthOptions: {
+                  credentials: credsObj,
+                },
+              }) as unknown as GenAiClient;
+              break;
+            }
+          } catch {
+            // ignore disk read error
+          }
+        }
+      }
+    }
+
+    if (!client) {
+      console.warn(
+        'Neither GEMINI_API_KEY nor valid GEMINI_CREDENTIALS found; returning all-null mapping without calling AI.'
+      );
       return allNullResult(unmatchedHeaders);
     }
   }
 
   const model =
-    env.MAPPING_MODEL || process.env.MAPPING_MODEL || 'gemini-2.5-flash';
+    env.MAPPING_MODEL || process.env.MAPPING_MODEL || 'gemini-flash-lite-latest';
 
   // 4. Build prompt, instructions, and schema
   const systemInstruction =
@@ -249,19 +329,25 @@ export async function suggestMappingWithAi(
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
+      const generateConfig: Record<string, unknown> = {
+        systemInstruction,
+        temperature: 0,
+        maxOutputTokens: 1000,
+        responseMimeType: 'application/json',
+        responseSchema,
+        httpOptions: { timeout: 15000 },
+      };
+
+      // Disable thinking if supported, but omit on lite models which reject thinkingConfig
+      if (!model.includes('lite') && !model.includes('flash-lite')) {
+        generateConfig.thinkingConfig = { thinkingBudget: 0 };
+      }
+
       const response = await withTimeout(
         client.models.generateContent({
           model,
           contents,
-          config: {
-            systemInstruction,
-            temperature: 0,
-            maxOutputTokens: 1000,
-            responseMimeType: 'application/json',
-            responseSchema,
-            thinkingConfig: { thinkingBudget: 0 },
-            httpOptions: { timeout: 15000 },
-          },
+          config: generateConfig,
         }),
         15000
       );
@@ -286,7 +372,17 @@ export async function suggestMappingWithAi(
         : lastError
           ? String(lastError)
           : 'Empty text returned by model';
-    console.warn('AI mapping failed or returned empty text:', msg);
+    if (msg.includes('BILLING_DISABLED') || msg.includes('requires billing')) {
+      console.warn(
+        'Google Cloud requires billing enabled on this project to use Vertex AI. To use Gemini completely free without setting up Google Cloud billing, generate a free API key at https://aistudio.google.com/app/apikey and set GEMINI_API_KEY=your_key in your .env. Falling back to deterministic mapping.'
+      );
+    } else if (msg.includes('SERVICE_DISABLED') || msg.includes('has not been used in project')) {
+      console.warn(
+        'Vertex AI API is not enabled in your Google Cloud project. Enable it at: https://console.developers.google.com/apis/api/aiplatform.googleapis.com/overview (or set a free GEMINI_API_KEY from https://aistudio.google.com/app/apikey). Falling back to deterministic mapping.'
+      );
+    } else {
+      console.warn('AI mapping failed or returned empty text:', msg);
+    }
     return allNullResult(unmatchedHeaders);
   }
 
@@ -421,3 +517,4 @@ export async function suggestMappingWithAi(
 
   return finalResult;
 }
+

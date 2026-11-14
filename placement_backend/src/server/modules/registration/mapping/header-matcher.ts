@@ -33,18 +33,34 @@ export const SYNONYMS: Record<string, string[]> = {
   studentId: [
     'student id',
     'studentid',
-    'reg no',
-    'regno',
-    'register number',
-    'registration number',
+    'student_id',
     'roll no',
     'rollno',
+    'roll_no',
     'roll number',
+    'roll',
+    'college id',
     'admission no',
     'admission number',
     'enrollment no',
     'enrollment number',
     'id',
+  ],
+  registrationNumber: [
+    'registration number',
+    'registration no',
+    'registration_number',
+    'registrationno',
+    'register number',
+    'registernumber',
+    'register no',
+    'registerno',
+    'reg no',
+    'regno',
+    'reg_no',
+    'university reg no',
+    'univ reg no',
+    'university registration number',
   ],
   name: [
     'name',
@@ -52,6 +68,32 @@ export const SYNONYMS: Record<string, string[]> = {
     'full name',
     'name of student',
     'candidate name',
+  ],
+  firstName: [
+    'first name',
+    'firstname',
+    'given name',
+    'forename',
+  ],
+  lastName: [
+    'last name',
+    'lastname',
+    'surname',
+    'family name',
+  ],
+  dob: [
+    'dob',
+    'date of birth',
+    'birth date',
+    'birthdate',
+    'date of birth dob',
+    'd o b',
+    'dateofbirth',
+  ],
+  age: [
+    'age',
+    'current age',
+    'years',
   ],
   branch: [
     'branch',
@@ -103,6 +145,43 @@ export const SYNONYMS: Record<string, string[]> = {
     'current backlogs',
     'standing arrears',
   ],
+  totalMarks: [
+    'total marks',
+    'totalmarks',
+    'marks obtained',
+    'obtained marks',
+    'total',
+    'marks',
+  ],
+  maxMarks: [
+    'max marks',
+    'maxmarks',
+    'maximum marks',
+    'total maximum marks',
+    'out of',
+  ],
+  percentage: [
+    'percentage',
+    'percentage %',
+    'percent',
+    '%',
+    'aggregate percentage',
+    'cgpa percentage',
+    'total percentage',
+  ],
+  marksheetUrl: [
+    'marksheet',
+    'marksheet url',
+    'marksheet link',
+    'marksheet drive link',
+    'drive link',
+    'drive link of marksheet',
+    'drive link of the marksheet',
+    'marksheet gdrive link',
+    'transcript link',
+    'marksheet drive url',
+    'gdrive link',
+  ],
 };
 
 /**
@@ -110,8 +189,16 @@ export const SYNONYMS: Record<string, string[]> = {
  * Supports patterns like:
  * - "sem 1 sgpa", "s1 sgpa", "sgpa s1", "semester 1 gpa", "gpa sem1", "s1"
  * - "sem 1 credits", "s1 credits", "credits sem 1", "credit s1", "s1 cr"
+ * - "sem 1 marksheet", "s1 marksheet", "s1 drive link"
  */
 export function matchSemesterHeader(normalized: string): string | null {
+  // Marksheet check first
+  const marksheetMatch =
+    normalized.match(/^(?:sem(?:ester)?\s*([1-6])\s*(?:marksheet|drive\s*link|marksheet\s*link)|(?:marksheet|drive\s*link)\s*(?:sem(?:ester)?\s*)?([1-6])|s([1-6])\s*(?:marksheet|drive\s*link)|(?:marksheet|drive\s*link)\s*s([1-6]))$/i);
+  if (marksheetMatch) {
+    const sem = marksheetMatch[1] || marksheetMatch[2] || marksheetMatch[3] || marksheetMatch[4];
+    return `s${sem}MarksheetUrl`;
+  }
   // Try SGPA / GPA
   // Matches "sem 1 sgpa", "s1 sgpa", "semester 1 sgpa", "sgpa sem 1", "sgpa s1", "gpa sem1", "sem 1 gpa", "s1"
   // Note: if it's "s1" alone without credits, standard convention is SGPA
