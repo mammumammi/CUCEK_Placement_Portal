@@ -18,6 +18,7 @@ import {
   completeStudentProfile,
   getProfileByStudentId,
   listProfiles,
+  getDepartmentStats,
   correctStudentProfile,
   getStudentAuditLogs,
   createCorrectionRequest,
@@ -59,6 +60,23 @@ export function createProfilesRouter(db: Db): Router {
         const input = completeProfileSchema.parse(req.body);
         const profile = await completeStudentProfile(db, req.user!.id, input);
         res.status(200).json(profile);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // GET /api/profiles/stats (Coordinators: department placement metrics and placed count)
+  router.get(
+    '/stats',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR', 'BRANCH_COORDINATOR'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const branchQuery =
+          typeof req.query.branch === 'string' ? req.query.branch : undefined;
+        const stats = await getDepartmentStats(db, req.user!, branchQuery);
+        res.status(200).json(stats);
       } catch (err) {
         next(err);
       }

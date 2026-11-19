@@ -29,6 +29,8 @@ import {
   Sparkles,
   Building2,
   ExternalLink,
+  Briefcase,
+  FileText,
 } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { RequireAuth } from '@/components/auth/require-auth';
@@ -728,13 +730,13 @@ export default function StudentPage() {
                 </div>
               </div>
 
-              {/* Correction Requests History */}
+              {/* Applied Requests & Corrections History */}
               <div className="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
                 <div className="p-6 border-b border-gray-200 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <BookOpen className="h-5 w-5 text-emerald-600" />
                     <h3 className="text-base font-semibold text-gray-900">
-                      Correction Requests History
+                      Applied Requests &amp; Corrections History
                     </h3>
                   </div>
                   <span className="text-xs text-gray-500">
@@ -745,60 +747,98 @@ export default function StudentPage() {
                 <div className="p-6">
                   {requests.length === 0 ? (
                     <p className="text-xs text-gray-500 text-center py-4">
-                      You haven’t submitted any profile correction requests yet.
+                      You haven’t submitted any drive applications or profile correction requests yet.
                     </p>
                   ) : (
                     <div className="space-y-3">
-                      {requests.map((r) => (
-                        <div
-                          key={r.id}
-                          className="p-4 rounded-lg border border-gray-200 bg-gray-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs"
-                        >
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              {r.status === 'PENDING' && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-800">
-                                  <Clock className="h-3 w-3" /> Under Review
-                                </span>
-                              )}
-                              {r.status === 'APPROVED' && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold bg-emerald-100 text-emerald-800">
-                                  <CheckCircle className="h-3 w-3" /> Approved & Updated
-                                </span>
-                              )}
-                              {r.status === 'REJECTED' && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold bg-red-100 text-red-800">
-                                  <AlertTriangle className="h-3 w-3" /> Rejected
-                                </span>
-                              )}
-                              <span className="text-gray-400">
-                                {new Date(r.createdAt).toLocaleDateString()}
-                              </span>
-                            </div>
+                      {requests.map((r) => {
+                        const changes = r.requestedChanges as Record<string, unknown>;
+                        const isDrive = changes?.type === 'DRIVE_APPLICATION';
 
-                            <div className="flex flex-wrap gap-2 pt-1">
-                              {Object.entries(r.requestedChanges).map(([k, v]) => (
-                                <span
-                                  key={k}
-                                  className="px-2 py-0.5 bg-white rounded border border-gray-200 text-gray-800 font-mono font-medium"
-                                >
-                                  {k}: <strong>{String(v)}</strong>
+                        return (
+                          <div
+                            key={r.id}
+                            className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs transition ${
+                              isDrive
+                                ? 'bg-purple-50/50 border-purple-200'
+                                : 'bg-gray-50/50 border-gray-200'
+                            }`}
+                          >
+                            <div className="space-y-1.5 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {isDrive ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                    <Briefcase className="h-3 w-3" /> Drive Application
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                                    <FileText className="h-3 w-3" /> Profile Correction
+                                  </span>
+                                )}
+
+                                {r.status === 'PENDING' && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-800">
+                                    <Clock className="h-3 w-3" /> Under Review by Coordinator
+                                  </span>
+                                )}
+                                {r.status === 'APPROVED' && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold bg-emerald-100 text-emerald-800">
+                                    <CheckCircle className="h-3 w-3" /> Verified &amp; Approved
+                                  </span>
+                                )}
+                                {r.status === 'REJECTED' && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold bg-red-100 text-red-800">
+                                    <AlertTriangle className="h-3 w-3" /> Rejected
+                                  </span>
+                                )}
+                                <span className="text-gray-400">
+                                  {new Date(r.createdAt).toLocaleDateString()}
                                 </span>
-                              ))}
-                            </div>
+                              </div>
 
-                            <p className="text-gray-600 mt-1">
-                              <strong>Reason:</strong> {r.reason}
-                            </p>
+                              {isDrive ? (
+                                <div className="pt-1">
+                                  <div className="font-bold text-gray-900 text-sm">
+                                    {String(changes.company || 'Company')} {changes.role ? `- ${String(changes.role)}` : ''}
+                                  </div>
+                                  <div className="text-xs text-gray-600 mt-0.5">
+                                    Package: <span className="font-mono font-bold text-emerald-700">{changes.ctcLpa ? `${changes.ctcLpa} LPA` : 'Standard'}</span> &bull; Status: Candidate application submitted to coordinator queue.
+                                  </div>
+                                  {typeof changes.driveId === 'string' && (
+                                    <Link
+                                      href={`/drives/${String(changes.driveId)}`}
+                                      className="inline-flex items-center gap-1 text-purple-700 hover:text-purple-900 font-semibold underline mt-1"
+                                    >
+                                      View Drive &amp; Fill Sheet
+                                    </Link>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="flex flex-wrap gap-2 pt-1">
+                                  {Object.entries(changes).map(([k, v]) => (
+                                    <span
+                                      key={k}
+                                      className="px-2 py-0.5 bg-white rounded border border-gray-200 text-gray-800 font-mono font-medium"
+                                    >
+                                      {k}: <strong>{String(v)}</strong>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
 
-                            {r.reviewerRemarks && (
-                              <p className="text-blue-700 bg-blue-50/80 p-2 rounded border border-blue-100 mt-1">
-                                <strong>Coordinator Feedback:</strong> {r.reviewerRemarks}
+                              <p className="text-gray-600 mt-1">
+                                <strong>Details / Reason:</strong> {r.reason}
                               </p>
-                            )}
+
+                              {r.reviewerRemarks && (
+                                <p className="text-blue-700 bg-blue-50/80 p-2 rounded border border-blue-100 mt-1">
+                                  <strong>Coordinator Feedback:</strong> {r.reviewerRemarks}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>

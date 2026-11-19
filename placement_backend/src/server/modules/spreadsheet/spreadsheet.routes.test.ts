@@ -500,5 +500,56 @@ describe('Spreadsheet Module (/api/spreadsheet)', () => {
       eceStudentId,
     ]);
   });
+
+  it('12. student applying to a drive creates an applied request in correctionRequests and coordinator can approve it', async () => {
+    // 1. Alice (CSE) applies to active drive
+    const applyRes = await request(app)
+      .post(`/api/spreadsheet/drives/${activeDriveId}/apply`)
+      .set('Cookie', cseStudentCookie)
+      .send({
+        extraData: { github: 'https://github.com/alice', workMode: 'Remote' },
+      });
+
+    expect(applyRes.status).toBe(201);
+    expect(applyRes.body.applicationId).toBeDefined();
+    expect(applyRes.body.requestId).toBeDefined();
+
+    // 2. CSE Coordinator queries correction-requests and finds the applied drive request
+    const requestsRes = await request(app)
+      .get('/api/profiles/correction-requests')
+      .set('Cookie', cseCookie);
+
+    expect(requestsRes.status).toBe(200);
+    const driveAppReq = requestsRes.body.find(
+      (r: { requestedChanges: { type?: string; driveId?: string } }) =>
+        r.requestedChanges.type === 'DRIVE_APPLICATION' && r.requestedChanges.driveId === activeDriveId
+    );
+
+    expect(driveAppReq).toBeDefined();
+    expect(driveAppReq.studentId).toBe(cseStudentId);
+    expect(driveAppReq.status).toBe('PENDING');
+    expect(driveAppReq.reason).toContain('Drive Application: Student applied for');
+
+    // 3. Coordinator approves the applied request
+    const reviewRes = await request(app)
+      .patch(`/api/profiles/correction-requests/${driveAppReq.id}/review`)
+      .set('Cookie', cseCookie)
+      .send({
+        action: 'APPROVE',
+        remarks: 'Eligibility checked and student application verified',
+      });
+
+    expect(reviewRes.status).toBe(200);
+    expect(reviewRes.body.status).toBe('APPROVED');
+
+    // 4. In spreadsheet, the student application is now verified: true!
+    const rowsRes = await request(app)
+      .get(`/api/spreadsheet/drives/${activeDriveId}/rows`)
+      .set('Cookie', cseCookie);
+
+    const aliceRow = rowsRes.body.find((r: { studentId: string }) => r.studentId === cseStudentId);
+    expect(aliceRow).toBeDefined();
+    expect(aliceRow.verified).toBe(true);
+  });
 });
 

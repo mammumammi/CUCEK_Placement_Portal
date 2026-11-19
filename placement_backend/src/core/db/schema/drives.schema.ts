@@ -35,6 +35,12 @@ export const drives = sqliteTable(
     packageCategory: text('packageCategory').default('GENERAL'), // 'GENERAL' | 'DREAM' | 'INTERNSHIP'
     ctcLpa: real('ctcLpa'),
     jdFileUrl: text('jdFileUrl'),
+    jdFileUrls: text('jdFileUrls', { mode: 'json' })
+      .$type<string[]>()
+      .default([]),
+    companyFormat: text('companyFormat', { mode: 'json' })
+      .$type<Array<{ companyHeader: string; sourceField: string }>>()
+      .default([]),
     deadline: text('deadline').notNull(), // ISO UTC timestamp string
     eligibleBranches: text('eligibleBranches', { mode: 'json' })
       .$type<string[]>()

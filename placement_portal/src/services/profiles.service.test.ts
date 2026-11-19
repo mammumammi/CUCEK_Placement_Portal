@@ -6,6 +6,7 @@ import {
   createCorrectionRequest,
   listCorrectionRequests,
   reviewCorrectionRequest,
+  getDepartmentStats,
 } from './profiles.service';
 import { apiClient } from '@/lib/api-client';
 
@@ -101,6 +102,30 @@ describe('Profiles Service (Frontend)', () => {
         { action: 'APPROVE', remarks: 'Verified' }
       );
       expect(res).toEqual(mockApproved);
+    });
+  });
+
+  describe('getDepartmentStats', () => {
+    it('calls GET /profiles/stats with optional branch', async () => {
+      const mockStats = {
+        branch: 'CSE',
+        totalStudents: 40,
+        placedCount: 30,
+        unplacedCount: 10,
+        placementRate: 75.0,
+        highestPackage: 28.5,
+        averagePackage: 12.0,
+        activeDrivesCount: 4,
+        placedStudents: [],
+      };
+
+      vi.mocked(apiClient.get).mockResolvedValueOnce({ data: mockStats });
+
+      const res = await getDepartmentStats('CSE');
+      expect(apiClient.get).toHaveBeenCalledWith('/profiles/stats', {
+        params: { branch: 'CSE' },
+      });
+      expect(res).toEqual(mockStats);
     });
   });
 });

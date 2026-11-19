@@ -44,6 +44,13 @@ export interface StudentProfileData {
   resumeUrl?: string | null;
   isProfileComplete?: boolean;
   semesters?: SemesterDetail[];
+  placement?: {
+    isPlaced: boolean;
+    company: string | null;
+    role: string | null;
+    ctcLpa: number | null;
+    placedAt?: string | null;
+  };
 }
 
 export interface CompleteProfilePayload {
@@ -64,6 +71,7 @@ export interface CorrectionRequestData {
   id: string;
   studentUserId: string;
   studentId: string;
+  registrationNumber?: string | null;
   studentName: string | null;
   branch: string;
   requestedChanges: Record<string, unknown>;
@@ -145,6 +153,38 @@ export async function reviewCorrectionRequest(
     `/profiles/correction-requests/${requestId}/review`,
     { action, remarks }
   );
+  return response.data;
+}
+
+export interface PlacedStudentSummary {
+  studentId: string;
+  name: string | null;
+  branch?: string;
+  company: string;
+  role: string | null;
+  ctcLpa: number | null;
+  placedAt?: string | null;
+}
+
+export interface DepartmentStats {
+  branch: string | null;
+  totalStudents: number;
+  placedCount: number;
+  unplacedCount: number;
+  placementRate: number;
+  highestPackage: number;
+  averagePackage: number;
+  activeDrivesCount: number;
+  placedStudents: PlacedStudentSummary[];
+}
+
+/**
+ * Retrieves department-level placement metrics, total placed count, and placed candidate details.
+ */
+export async function getDepartmentStats(branch?: string): Promise<DepartmentStats> {
+  const response = await apiClient.get<DepartmentStats>('/profiles/stats', {
+    params: branch ? { branch } : undefined,
+  });
   return response.data;
 }
 

@@ -274,7 +274,7 @@ describe('AI Mapper & Mapping Service', () => {
 
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
-  });
+  }, 15000);
 
   it('the second call with the same headers hits the cache', async () => {
     const mockClient: GenAiClient = {

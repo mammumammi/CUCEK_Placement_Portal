@@ -8,9 +8,9 @@
  * @module app/drives/[driveId]/page
  */
 
-import React, { useEffect, useState, use } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import {
   Building2,
   Calendar,
@@ -32,12 +32,38 @@ import { getDriveById, type DriveItem } from '@/services/drives.service';
 import { applyToDrive } from '@/services/spreadsheet.service';
 
 interface DrivePageProps {
-  params: Promise<{ driveId: string }>;
+  params?: Promise<{ driveId: string }> | { driveId: string };
 }
 
 export default function DriveApplicationPage({ params }: DrivePageProps) {
-  const resolvedParams = use(params);
-  const driveId = resolvedParams.driveId;
+  const routeParams = useParams();
+  const routeDriveId =
+    typeof routeParams?.driveId === 'string'
+      ? routeParams.driveId
+      : Array.isArray(routeParams?.driveId)
+      ? routeParams.driveId[0]
+      : undefined;
+
+  const [propDriveId, setPropDriveId] = useState<string | undefined>(() => {
+    if (params && typeof (params as any).then !== 'function' && 'driveId' in params) {
+      return (params as { driveId: string }).driveId;
+    }
+    return undefined;
+  });
+
+  useEffect(() => {
+    if (params && typeof (params as any).then === 'function') {
+      (params as Promise<{ driveId: string }>)
+        .then((resolved) => {
+          if (resolved?.driveId) {
+            setPropDriveId(resolved.driveId);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [params]);
+
+  const driveId = routeDriveId || propDriveId || '';
 
   const router = useRouter();
   const { user } = useAuth();
@@ -49,7 +75,8 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
   const [applySuccess, setApplySuccess] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
 
-  const fetchDrive = React.useCallback(async () => {
+  const fetchDrive = useCallback(async () => {
+    if (!driveId) return;
     setLoading(true);
     setError(null);
     try {

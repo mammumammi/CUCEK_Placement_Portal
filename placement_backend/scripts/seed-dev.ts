@@ -1,10 +1,16 @@
 /**
- * @fileoverview Seed script for sample dev users and mock placement drive.
+ * @fileoverview Comprehensive Seed script for sample dev users, department logins, and mock placement drives.
  * Creates:
  * 1. MAIN_COORDINATOR: admin / AdminPassword123!
- * 2. BRANCH_COORDINATOR: cse_coord / CoordPassword123! (branch: CSE)
- * 3. STUDENT: 2022BCSE001 / StudentPassword123! (branch: CSE, CGPA: 8.75)
- * 4. Sample Placement Drive: "Google Software Engineer Intern 2026"
+ * 2. BRANCH_COORDINATORS / DEPARTMENT LOGINS:
+ *    - CSE: cse_coord, cse_dept / CoordPassword123!
+ *    - ECE: ece_coord, ece_dept / CoordPassword123!
+ *    - EEE: eee_coord, eee_dept / CoordPassword123!
+ *    - IT: it_coord, it_dept / CoordPassword123!
+ *    - CIVIL: civil_coord, civil_dept / CoordPassword123!
+ *    - MCA: mca_coord, mca_dept / CoordPassword123!
+ * 3. Sample students across all 6 departments with full academic records.
+ * 4. Sample Placement Drives (Dream, General, Internship) with placed applications.
  */
 
 import 'dotenv/config';
@@ -13,14 +19,19 @@ import { createDb } from '@/core/db/client';
 import { runMigrations } from '@/core/db/migrate';
 import { users } from '@/core/db/schema/users.schema';
 import { studentProfiles, semesterResults } from '@/core/db/schema/profiles.schema';
-import { drives } from '@/core/db/schema/drives.schema';
+import { drives, applications } from '@/core/db/schema/drives.schema';
 import { env } from '@/server/config/env';
 import { hashPassword } from '@/server/modules/auth/password';
+
+export const ALL_BRANCHES = ['CSE', 'ECE', 'EEE', 'IT', 'CIVIL', 'MCA'] as const;
 
 async function seedDevData() {
   console.log('--- Seeding Dev Data ---');
   runMigrations(env.DATABASE_URL);
   const db = createDb(env.DATABASE_URL);
+
+  const defaultCoordPassword = 'CoordPassword123!';
+  const coordHash = await hashPassword(defaultCoordPassword);
 
   // 1. Seed Main Coordinator (admin)
   const [existingAdmin] = await db.select().from(users).where(eq(users.username, 'admin')).limit(1);
@@ -42,45 +53,133 @@ async function seedDevData() {
     console.log('Main Coordinator "admin" already exists.');
   }
 
-  // 2. Seed Branch Coordinator (cse_coord)
-  const [existingCoord] = await db.select().from(users).where(eq(users.username, 'cse_coord')).limit(1);
-  if (!existingCoord) {
-    const coordId = crypto.randomUUID();
-    const hash = await hashPassword('CoordPassword123!');
-    await db.insert(users).values({
-      id: coordId,
-      username: 'cse_coord',
-      passwordHash: hash,
-      role: 'BRANCH_COORDINATOR',
-      branch: 'CSE',
-      createdAt: new Date(),
-    });
-    console.log('Created Branch Coordinator: cse_coord / CoordPassword123! (CSE)');
-  } else {
-    console.log('Branch Coordinator "cse_coord" already exists.');
+  // 2. Seed Department / Branch Coordinators for CSE, ECE, EEE, IT, CIVIL, MCA
+  for (const branch of ALL_BRANCHES) {
+    const coordUsername = `${branch.toLowerCase()}_coord`;
+    const deptUsername = `${branch.toLowerCase()}_dept`;
+
+    for (const uName of [coordUsername, deptUsername]) {
+      const [existing] = await db.select().from(users).where(eq(users.username, uName)).limit(1);
+      if (!existing) {
+        await db.insert(users).values({
+          id: crypto.randomUUID(),
+          username: uName,
+          passwordHash: coordHash,
+          role: 'BRANCH_COORDINATOR',
+          branch,
+          createdAt: new Date(),
+        });
+        console.log(`Created Department Login: ${uName} / ${defaultCoordPassword} (${branch})`);
+      }
+    }
   }
 
-  // 3. Seed Student (2022BCSE001)
-  const studentUsername = '2022BCSE001';
-  const [existingStudent] = await db.select().from(users).where(eq(users.username, studentUsername)).limit(1);
-  let studentUserId: string;
-  if (!existingStudent) {
-    studentUserId = crypto.randomUUID();
-    const hash = await hashPassword('StudentPassword123!');
-    await db.insert(users).values({
-      id: studentUserId,
-      username: studentUsername,
-      passwordHash: hash,
-      role: 'STUDENT',
-      branch: 'CSE',
-      createdAt: new Date(),
-    });
+  // 3. Seed Placement Drives
+  const driveConfigs = [
+    {
+      company: 'Google',
+      role: 'Software Development Engineer (SDE-1)',
+      description: 'Google is hiring software engineers to build scalable distributed systems and cloud services.',
+      packageCategory: 'DREAM' as const,
+      ctcLpa: 28.5,
+      deadline: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      eligibleBranches: ['CSE', 'ECE', 'EEE', 'IT', 'MCA'],
+      minCgpa: 7.5,
+      allowBacklogs: false,
+      maxActiveBacklogs: 0,
+      totalRounds: 3,
+      extraFields: [
+        { key: 'preferredLocation', label: 'Preferred Location', type: 'dropdown' as const, options: ['Bangalore', 'Hyderabad', 'Gurgaon'], required: true },
+        { key: 'githubUrl', label: 'GitHub Profile URL', type: 'text' as const, required: false },
+        { key: 'codingExperience', label: 'Years of Coding Experience', type: 'number' as const, required: false },
+      ],
+    },
+    {
+      company: 'Microsoft',
+      role: 'Software Engineer',
+      description: 'Microsoft hiring engineers for Core OS, Azure Cloud, and AI development.',
+      packageCategory: 'DREAM' as const,
+      ctcLpa: 22.0,
+      deadline: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
+      eligibleBranches: ['CSE', 'ECE', 'EEE', 'IT', 'MCA'],
+      minCgpa: 7.0,
+      allowBacklogs: false,
+      maxActiveBacklogs: 0,
+      totalRounds: 3,
+      extraFields: [
+        { key: 'portfolioUrl', label: 'Portfolio Link', type: 'text' as const, required: false },
+        { key: 'internshipExpMonths', label: 'Internship Experience (Months)', type: 'number' as const, required: false },
+      ],
+    },
+    {
+      company: 'Tata Consultancy Services (TCS)',
+      role: 'Digital Systems Engineer Trainee',
+      description: 'TCS Digital campus recruitment drive for engineering and computer application graduates.',
+      packageCategory: 'GENERAL' as const,
+      ctcLpa: 7.0,
+      deadline: new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString(),
+      eligibleBranches: ['CSE', 'ECE', 'EEE', 'IT', 'CIVIL', 'MCA'],
+      minCgpa: 6.0,
+      allowBacklogs: true,
+      maxActiveBacklogs: 1,
+      totalRounds: 2,
+      extraFields: [
+        { key: 'willingToRelocate', label: 'Willing to Relocate', type: 'dropdown' as const, options: ['Yes', 'No'], required: true },
+      ],
+    },
+    {
+      company: 'Amazon',
+      role: '6-Month Summer Technical Intern',
+      description: 'Amazon technical internship program offering live project mentoring and competitive stipend.',
+      packageCategory: 'INTERNSHIP' as const,
+      ctcLpa: null,
+      deadline: new Date(Date.now() + 12 * 24 * 60 * 60 * 1000).toISOString(),
+      eligibleBranches: ['CSE', 'IT', 'ECE', 'MCA'],
+      minCgpa: 7.0,
+      allowBacklogs: false,
+      maxActiveBacklogs: 0,
+      totalRounds: 2,
+      extraFields: [
+        { key: 'preferredDomain', label: 'Preferred Domain', type: 'dropdown' as const, options: ['Backend', 'Full Stack', 'Machine Learning'], required: true },
+      ],
+    },
+  ];
 
-    // Profile
-    await db.insert(studentProfiles).values({
-      userId: studentUserId,
-      studentId: studentUsername,
-      registrationNumber: 'REG-2022-CSE-001',
+  const driveMap: Record<string, string> = {};
+  for (const conf of driveConfigs) {
+    const [existing] = await db.select().from(drives).where(eq(drives.company, conf.company)).limit(1);
+    if (!existing) {
+      const dId = crypto.randomUUID();
+      await db.insert(drives).values({
+        id: dId,
+        ...conf,
+        createdBy: adminId,
+        createdAt: new Date(),
+      });
+      driveMap[conf.company] = dId;
+      console.log(`Created drive: ${conf.company} (${conf.packageCategory})`);
+    } else {
+      driveMap[conf.company] = existing.id;
+      // Update with new fields if needed
+      await db.update(drives).set({
+        role: conf.role,
+        packageCategory: conf.packageCategory,
+        ctcLpa: conf.ctcLpa,
+        eligibleBranches: conf.eligibleBranches,
+        minCgpa: conf.minCgpa,
+        allowBacklogs: conf.allowBacklogs,
+        maxActiveBacklogs: conf.maxActiveBacklogs,
+        extraFields: conf.extraFields,
+      }).where(eq(drives.id, existing.id));
+    }
+  }
+
+  // 4. Seed Students across CSE, ECE, EEE, IT, CIVIL, MCA
+  const studentData = [
+    // CSE
+    {
+      id: '2022BCSE001',
+      regNo: 'REG-2022-CSE-001',
       name: 'Aditya Sharma',
       firstName: 'Aditya',
       lastName: 'Sharma',
@@ -95,78 +194,12 @@ async function seedDevData() {
       totalMarks: 5250,
       maxMarks: 6000,
       percentage: 87.5,
-      isProfileComplete: true,
+      placedCompany: 'Google',
       marksheetUrl: 'https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs/view?usp=sharing',
-      s1MarksheetUrl: 'https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs/view',
-      s2MarksheetUrl: 'https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs/view',
-      s3MarksheetUrl: 'https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs/view',
-      resumeUrl: 'https://example.com/resumes/2022BCSE001.pdf',
-    });
-
-    // Semester results
-    const semRecords = [
-      { semester: 1, credits: 20, sgpa: 8.5, totalMarks: 850, maxMarks: 1000, percentage: 85.0, marksheetUrl: 'https://drive.google.com/file/d/1Sem1MarksheetLink/view' },
-      { semester: 2, credits: 22, sgpa: 8.8, totalMarks: 880, maxMarks: 1000, percentage: 88.0, marksheetUrl: 'https://drive.google.com/file/d/1Sem2MarksheetLink/view' },
-      { semester: 3, credits: 24, sgpa: 8.9, totalMarks: 890, maxMarks: 1000, percentage: 89.0, marksheetUrl: 'https://drive.google.com/file/d/1Sem3MarksheetLink/view' },
-      { semester: 4, credits: 22, sgpa: 8.7, totalMarks: 870, maxMarks: 1000, percentage: 87.0, marksheetUrl: 'https://drive.google.com/file/d/1Sem4MarksheetLink/view' },
-      { semester: 5, credits: 20, sgpa: 8.85, totalMarks: 885, maxMarks: 1000, percentage: 88.5, marksheetUrl: 'https://drive.google.com/file/d/1Sem5MarksheetLink/view' },
-      { semester: 6, credits: 18, sgpa: 8.7, totalMarks: 870, maxMarks: 1000, percentage: 87.0, marksheetUrl: 'https://drive.google.com/file/d/1Sem6MarksheetLink/view' },
-    ];
-    for (const sem of semRecords) {
-      await db.insert(semesterResults).values({
-        id: crypto.randomUUID(),
-        userId: studentUserId,
-        semester: sem.semester,
-        credits: sem.credits,
-        sgpa: sem.sgpa,
-        totalMarks: sem.totalMarks,
-        maxMarks: sem.maxMarks,
-        percentage: sem.percentage,
-        marksheetUrl: sem.marksheetUrl,
-      });
-    }
-
-    console.log('Created Student: 2022BCSE001 / StudentPassword123! (Aditya Sharma, CSE, CGPA: 8.75)');
-  } else {
-    studentUserId = existingStudent.id;
-    // Update existing profile with new columns
-    await db.update(studentProfiles).set({
-      registrationNumber: 'REG-2022-CSE-001',
-      firstName: 'Aditya',
-      lastName: 'Sharma',
-      dob: '2004-03-12',
-      age: 22,
-      totalMarks: 5250,
-      maxMarks: 6000,
-      percentage: 87.5,
-      isProfileComplete: true,
-      marksheetUrl: 'https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs/view?usp=sharing',
-      s1MarksheetUrl: 'https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs/view',
-      s2MarksheetUrl: 'https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs/view',
-      s3MarksheetUrl: 'https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs/view',
-    }).where(eq(studentProfiles.userId, studentUserId));
-
-    console.log('Updated Student "2022BCSE001" with marksheet, totalMarks, and percentage.');
-  }
-
-  // Seed additional students with drive marksheet links: Rohan Gupta (2022BCSE010)
-  const student2Id = '2022BCSE010';
-  const [existingStudent2] = await db.select().from(users).where(eq(users.username, student2Id)).limit(1);
-  if (!existingStudent2) {
-    const u2Id = crypto.randomUUID();
-    const hash2 = await hashPassword(student2Id);
-    await db.insert(users).values({
-      id: u2Id,
-      username: student2Id,
-      passwordHash: hash2,
-      role: 'STUDENT',
-      branch: 'CSE',
-      createdAt: new Date(),
-    });
-    await db.insert(studentProfiles).values({
-      userId: u2Id,
-      studentId: student2Id,
-      registrationNumber: 'REG-2022-CSE-010',
+    },
+    {
+      id: '2022BCSE010',
+      regNo: 'REG-2022-CSE-010',
       name: 'Rohan Gupta',
       firstName: 'Rohan',
       lastName: 'Gupta',
@@ -181,43 +214,12 @@ async function seedDevData() {
       totalMarks: 5160,
       maxMarks: 6000,
       percentage: 86.0,
-      isProfileComplete: true,
+      placedCompany: 'Microsoft',
       marksheetUrl: 'https://drive.google.com/file/d/1RohanGuptaConsolidatedMarksheet/view',
-      s1MarksheetUrl: 'https://drive.google.com/file/d/1RohanSem1Marksheet/view',
-      s2MarksheetUrl: 'https://drive.google.com/file/d/1RohanSem2Marksheet/view',
-    });
-    for (let sem = 1; sem <= 6; sem++) {
-      await db.insert(semesterResults).values({
-        id: crypto.randomUUID(),
-        userId: u2Id,
-        semester: sem,
-        credits: 20,
-        sgpa: sem === 1 ? 8.5 : sem === 2 ? 8.7 : 8.6,
-        percentage: sem === 1 ? 85.0 : sem === 2 ? 87.0 : 86.0,
-        marksheetUrl: `https://drive.google.com/file/d/1RohanSem${sem}Marksheet/view`,
-      });
-    }
-    console.log('Created Student: 2022BCSE010 / 2022BCSE010 (Rohan Gupta, CSE, CGPA: 8.60)');
-  }
-
-  // Seed additional students with drive marksheet links: Sneha Patel (2022BCSE011)
-  const student3Id = '2022BCSE011';
-  const [existingStudent3] = await db.select().from(users).where(eq(users.username, student3Id)).limit(1);
-  if (!existingStudent3) {
-    const u3Id = crypto.randomUUID();
-    const hash3 = await hashPassword(student3Id);
-    await db.insert(users).values({
-      id: u3Id,
-      username: student3Id,
-      passwordHash: hash3,
-      role: 'STUDENT',
-      branch: 'CSE',
-      createdAt: new Date(),
-    });
-    await db.insert(studentProfiles).values({
-      userId: u3Id,
-      studentId: student3Id,
-      registrationNumber: 'REG-2022-CSE-011',
+    },
+    {
+      id: '2022BCSE011',
+      regNo: 'REG-2022-CSE-011',
       name: 'Sneha Patel',
       firstName: 'Sneha',
       lastName: 'Patel',
@@ -232,77 +234,280 @@ async function seedDevData() {
       totalMarks: 5520,
       maxMarks: 6000,
       percentage: 92.0,
-      isProfileComplete: true,
+      placedCompany: 'Amazon',
       marksheetUrl: 'https://drive.google.com/file/d/1SnehaPatelConsolidatedMarksheet/view',
-      s1MarksheetUrl: 'https://drive.google.com/file/d/1SnehaSem1Marksheet/view',
-      s2MarksheetUrl: 'https://drive.google.com/file/d/1SnehaSem2Marksheet/view',
-    });
-    for (let sem = 1; sem <= 6; sem++) {
-      await db.insert(semesterResults).values({
-        id: crypto.randomUUID(),
-        userId: u3Id,
-        semester: sem,
-        credits: 22,
-        sgpa: sem === 1 ? 9.1 : sem === 2 ? 9.3 : 9.2,
-        percentage: sem === 1 ? 91.0 : sem === 2 ? 93.0 : 92.0,
-        marksheetUrl: `https://drive.google.com/file/d/1SnehaSem${sem}Marksheet/view`,
-      });
-    }
-    console.log('Created Student: 2022BCSE011 / 2022BCSE011 (Sneha Patel, CSE, CGPA: 9.20)');
-  }
-
-  // Seed sample student with INCOMPLETE profile (created by coordinator without email, phone, etc.)
-  const studentIncompleteId = '2022BCSE099';
-  const [existingIncomplete] = await db.select().from(users).where(eq(users.username, studentIncompleteId)).limit(1);
-  if (!existingIncomplete) {
-    const uIncId = crypto.randomUUID();
-    const hashInc = await hashPassword(studentIncompleteId);
-    await db.insert(users).values({
-      id: uIncId,
-      username: studentIncompleteId,
-      passwordHash: hashInc,
-      role: 'STUDENT',
-      branch: 'CSE',
-      createdAt: new Date(),
-    });
-    await db.insert(studentProfiles).values({
-      userId: uIncId,
-      studentId: studentIncompleteId,
-      registrationNumber: 'REG-2022-CSE-099',
-      branch: 'CSE',
+    },
+    // ECE
+    {
+      id: '2022BECE005',
+      regNo: 'REG-2022-ECE-005',
+      name: 'Priya Nair',
+      firstName: 'Priya',
+      lastName: 'Nair',
+      dob: '2004-05-18',
+      age: 22,
+      branch: 'ECE',
+      batch: '2026',
+      email: 'priya.nair@college.edu',
+      phone: '9876500003',
       activeBacklogs: 0,
-      cgpa: 0,
-      isProfileComplete: false,
-    });
-    console.log('Created Incomplete Student: 2022BCSE099 / 2022BCSE099 (CSE, awaiting first login profile setup)');
-  }
+      cgpa: 8.10,
+      totalMarks: 4860,
+      maxMarks: 6000,
+      percentage: 81.0,
+      placedCompany: 'Tata Consultancy Services (TCS)',
+      marksheetUrl: 'https://drive.google.com/file/d/1PriyaNairMarksheet/view',
+    },
+    {
+      id: '2022BECE008',
+      regNo: 'REG-2022-ECE-008',
+      name: 'Rahul Varma',
+      firstName: 'Rahul',
+      lastName: 'Varma',
+      dob: '2004-11-04',
+      age: 22,
+      branch: 'ECE',
+      batch: '2026',
+      email: 'rahul.varma@college.edu',
+      phone: '9876500004',
+      activeBacklogs: 1,
+      cgpa: 6.80,
+      totalMarks: 4080,
+      maxMarks: 6000,
+      percentage: 68.0,
+      placedCompany: null,
+      marksheetUrl: 'https://drive.google.com/file/d/1RahulVarmaMarksheet/view',
+    },
+    // EEE
+    {
+      id: '2022BEEE002',
+      regNo: 'REG-2022-EEE-002',
+      name: 'Ananya Das',
+      firstName: 'Ananya',
+      lastName: 'Das',
+      dob: '2004-02-14',
+      age: 22,
+      branch: 'EEE',
+      batch: '2026',
+      email: 'ananya.das@college.edu',
+      phone: '9876500005',
+      activeBacklogs: 0,
+      cgpa: 8.40,
+      totalMarks: 5040,
+      maxMarks: 6000,
+      percentage: 84.0,
+      placedCompany: 'Tata Consultancy Services (TCS)',
+      marksheetUrl: 'https://drive.google.com/file/d/1AnanyaDasMarksheet/view',
+    },
+    {
+      id: '2022BEEE014',
+      regNo: 'REG-2022-EEE-014',
+      name: 'Sandeep Kumar',
+      firstName: 'Sandeep',
+      lastName: 'Kumar',
+      dob: '2004-07-29',
+      age: 22,
+      branch: 'EEE',
+      batch: '2026',
+      email: 'sandeep.kumar@college.edu',
+      phone: '9876500006',
+      activeBacklogs: 0,
+      cgpa: 7.20,
+      totalMarks: 4320,
+      maxMarks: 6000,
+      percentage: 72.0,
+      placedCompany: null,
+      marksheetUrl: 'https://drive.google.com/file/d/1SandeepKumarMarksheet/view',
+    },
+    // IT
+    {
+      id: '2022BIT003',
+      regNo: 'REG-2022-IT-003',
+      name: 'Vikram Malhotra',
+      firstName: 'Vikram',
+      lastName: 'Malhotra',
+      dob: '2004-06-10',
+      age: 22,
+      branch: 'IT',
+      batch: '2026',
+      email: 'vikram.malhotra@college.edu',
+      phone: '9876500007',
+      activeBacklogs: 0,
+      cgpa: 8.90,
+      totalMarks: 5340,
+      maxMarks: 6000,
+      percentage: 89.0,
+      placedCompany: 'Google',
+      marksheetUrl: 'https://drive.google.com/file/d/1VikramMalhotraMarksheet/view',
+    },
+    {
+      id: '2022BIT012',
+      regNo: 'REG-2022-IT-012',
+      name: 'Neha Singh',
+      firstName: 'Neha',
+      lastName: 'Singh',
+      dob: '2004-08-19',
+      age: 22,
+      branch: 'IT',
+      batch: '2026',
+      email: 'neha.singh@college.edu',
+      phone: '9876500008',
+      activeBacklogs: 0,
+      cgpa: 7.80,
+      totalMarks: 4680,
+      maxMarks: 6000,
+      percentage: 78.0,
+      placedCompany: null,
+      marksheetUrl: 'https://drive.google.com/file/d/1NehaSinghMarksheet/view',
+    },
+    // CIVIL
+    {
+      id: '2022BCIVIL001',
+      regNo: 'REG-2022-CIV-001',
+      name: 'Karthik Raj',
+      firstName: 'Karthik',
+      lastName: 'Raj',
+      dob: '2004-01-25',
+      age: 22,
+      branch: 'CIVIL',
+      batch: '2026',
+      email: 'karthik.raj@college.edu',
+      phone: '9876500009',
+      activeBacklogs: 0,
+      cgpa: 7.45,
+      totalMarks: 4470,
+      maxMarks: 6000,
+      percentage: 74.5,
+      placedCompany: null,
+      marksheetUrl: 'https://drive.google.com/file/d/1KarthikRajMarksheet/view',
+    },
+    // MCA
+    {
+      id: '2024MCA006',
+      regNo: 'REG-2024-MCA-006',
+      name: 'Pooja Iyer',
+      firstName: 'Pooja',
+      lastName: 'Iyer',
+      dob: '2002-12-05',
+      age: 24,
+      branch: 'MCA',
+      batch: '2026',
+      email: 'pooja.iyer@college.edu',
+      phone: '9876500010',
+      activeBacklogs: 0,
+      cgpa: 9.05,
+      totalMarks: 5430,
+      maxMarks: 6000,
+      percentage: 90.5,
+      placedCompany: 'Microsoft',
+      marksheetUrl: 'https://drive.google.com/file/d/1PoojaIyerMarksheet/view',
+    },
+  ];
 
-  // 4. Sample Recruitment Drive
-  const driveTitle = 'Google Software Engineer Intern 2026';
-  const [existingDrive] = await db.select().from(drives).where(eq(drives.company, 'Google')).limit(1);
-  if (!existingDrive) {
-    const futureDeadline = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
-    await db.insert(drives).values({
-      id: crypto.randomUUID(),
-      company: 'Google',
-      description: 'Summer 2026 Software Engineer Internship Program.',
-      jdFileUrl: '/uploads/sample_google_jd.pdf',
-      deadline: futureDeadline,
-      eligibleBranches: ['CSE', 'IT', 'ECE'],
-      minCgpa: 7.5,
-      maxActiveBacklogs: 0,
-      totalRounds: 3,
-      extraFields: [
-        { key: 'preferredLocation', label: 'Preferred Location', type: 'dropdown', options: ['Bangalore', 'Hyderabad', 'Remote'], required: true },
-        { key: 'githubUrl', label: 'GitHub Profile URL', type: 'text', required: false },
-        { key: 'yearsOfCodingExperience', label: 'Years of Coding Experience', type: 'number', required: false },
-      ],
-      createdBy: adminId,
-      createdAt: new Date(),
-    });
-    console.log(`Created sample recruitment drive: "${driveTitle}" (deadline in 14 days)`);
-  } else {
-    console.log('Sample drive for Google already exists.');
+  for (const s of studentData) {
+    let studentUserId: string;
+    const [existing] = await db.select().from(users).where(eq(users.username, s.id)).limit(1);
+    if (!existing) {
+      studentUserId = crypto.randomUUID();
+      const hash = await hashPassword('StudentPassword123!');
+      await db.insert(users).values({
+        id: studentUserId,
+        username: s.id,
+        passwordHash: hash,
+        role: 'STUDENT',
+        branch: s.branch,
+        createdAt: new Date(),
+      });
+      console.log(`Created student user: ${s.id} (${s.branch})`);
+    } else {
+      studentUserId = existing.id;
+    }
+
+    const [existingProfile] = await db.select().from(studentProfiles).where(eq(studentProfiles.userId, studentUserId)).limit(1);
+    const profileValues = {
+      userId: studentUserId,
+      studentId: s.id,
+      registrationNumber: s.regNo,
+      name: s.name,
+      firstName: s.firstName,
+      lastName: s.lastName,
+      dob: s.dob,
+      age: s.age,
+      branch: s.branch,
+      batch: s.batch,
+      email: s.email,
+      phone: s.phone,
+      activeBacklogs: s.activeBacklogs,
+      cgpa: s.cgpa,
+      totalMarks: s.totalMarks,
+      maxMarks: s.maxMarks,
+      percentage: s.percentage,
+      isProfileComplete: true,
+      marksheetUrl: s.marksheetUrl,
+      s1MarksheetUrl: `${s.marksheetUrl}_Sem1`,
+      s2MarksheetUrl: `${s.marksheetUrl}_Sem2`,
+      s3MarksheetUrl: `${s.marksheetUrl}_Sem3`,
+      s4MarksheetUrl: `${s.marksheetUrl}_Sem4`,
+      s5MarksheetUrl: `${s.marksheetUrl}_Sem5`,
+      s6MarksheetUrl: `${s.marksheetUrl}_Sem6`,
+    };
+
+    if (!existingProfile) {
+      await db.insert(studentProfiles).values(profileValues);
+    } else {
+      await db.update(studentProfiles).set(profileValues).where(eq(studentProfiles.userId, studentUserId));
+    }
+
+    // Insert semester breakdown results
+    const existingSems = await db.select().from(semesterResults).where(eq(semesterResults.userId, studentUserId));
+    if (existingSems.length === 0) {
+      for (let sem = 1; sem <= 6; sem++) {
+        const semSgpa = Math.min(10, Math.max(5, s.cgpa + (sem % 2 === 0 ? 0.2 : -0.2)));
+        await db.insert(semesterResults).values({
+          id: crypto.randomUUID(),
+          userId: studentUserId,
+          semester: sem,
+          credits: 20,
+          sgpa: Number(semSgpa.toFixed(2)),
+          totalMarks: Math.round(semSgpa * 95),
+          maxMarks: 1000,
+          percentage: Number((semSgpa * 9.5).toFixed(1)),
+          marksheetUrl: `${s.marksheetUrl}_Sem${sem}`,
+        });
+      }
+    }
+
+    // Link application and placement if placed
+    if (s.placedCompany && driveMap[s.placedCompany]) {
+      const driveId = driveMap[s.placedCompany];
+      const [existingApp] = await db
+        .select()
+        .from(applications)
+        .where(eq(applications.studentUserId, studentUserId))
+        .limit(1);
+
+      if (!existingApp) {
+        await db.insert(applications).values({
+          id: crypto.randomUUID(),
+          driveId,
+          studentUserId,
+          verified: true,
+          verifiedBy: adminId,
+          placed: true,
+          extraData: {
+            preferredLocation: 'Bangalore',
+            willingToRelocate: 'Yes',
+          },
+          createdAt: new Date(),
+        });
+        console.log(`Placed student: ${s.name} (${s.branch}) -> ${s.placedCompany}`);
+      } else {
+        await db.update(applications).set({
+          placed: true,
+          verified: true,
+        }).where(eq(applications.id, existingApp.id));
+      }
+    }
   }
 
   console.log('--- Dev Data Seeding Complete ---');
@@ -314,4 +519,3 @@ seedDevData()
     console.error('Seeding failed:', err);
     process.exit(1);
   });
-

@@ -55,10 +55,10 @@ export function parseJdDeterministically(text: string): JdSummaryResult {
 
   // 1. Detect Company
   let company = 'Recruitment Partner';
-  const companyMatch = text.match(/(?:company|organization|employer|client)\s*[:\-–]\s*([A-Za-z0-9&.\s]{2,30})/i) ||
-                       text.match(/(?:welcome to|hiring at|careers at)\s+([A-Za-z0-9&.\s]{2,25})/i);
+  const companyMatch = text.match(/(?:company|organization|employer|client)\s*[:\-–]\s*([A-Za-z0-9&. \t]{2,40})/i) ||
+                       text.match(/(?:welcome to|hiring at|careers at)\s+([A-Za-z0-9&. \t]{2,35})/i);
   if (companyMatch && companyMatch[1].trim()) {
-    company = companyMatch[1].trim();
+    company = companyMatch[1].trim().split('\n')[0].trim();
   } else {
     const firstLines = text.split('\n').map(l => l.trim()).filter(Boolean);
     if (firstLines.length > 0 && firstLines[0].length < 40) {
@@ -68,10 +68,10 @@ export function parseJdDeterministically(text: string): JdSummaryResult {
 
   // 2. Detect Role / Title
   let role = 'Software Engineer';
-  const roleMatch = text.match(/(?:role|designation|position|job title|profile)\s*[:\-–]\s*([A-Za-z0-9\s/().-]{2,40})/i) ||
-                    text.match(/(?:hiring for|seeking a|opening for)\s+([A-Za-z0-9\s/().-]{2,35})/i);
+  const roleMatch = text.match(/(?:role|designation|position|job title|profile)\s*[:\-–]\s*([A-Za-z0-9/().\- \t]{2,40})/i) ||
+                    text.match(/(?:hiring for|seeking a|opening for)\s+([A-Za-z0-9/().\- \t]{2,35})/i);
   if (roleMatch && roleMatch[1].trim()) {
-    role = roleMatch[1].trim();
+    role = roleMatch[1].trim().split('\n')[0].trim();
   }
 
   // 3. Detect CTC / Compensation
@@ -134,9 +134,10 @@ export function parseJdDeterministically(text: string): JdSummaryResult {
     CSE: /\b(?:cse|computer science|computer engineering|information technology|cs)\b/i,
     IT: /\b(?:it|information technology)\b/i,
     ECE: /\b(?:ece|electronics|telecommunication)\b/i,
-    EE: /\b(?:ee|eee|electrical)\b/i,
-    MECH: /\b(?:mech|mechanical)\b/i,
+    EEE: /\b(?:eee|ee|electrical)\b/i,
     CIVIL: /\b(?:civil)\b/i,
+    MCA: /\b(?:mca|master of computer applications)\b/i,
+    MECH: /\b(?:mech|mechanical)\b/i,
     AIDS: /\b(?:ai|data science|ai&ds|aids)\b/i,
   };
 
@@ -165,36 +166,65 @@ export function parseJdDeterministically(text: string): JdSummaryResult {
   };
 }
 
+export interface UploadedFileDoc {
+  buffer: Buffer;
+  mimetype?: string;
+  originalname?: string;
+}
+
 /**
- * Summarizes a Job Description PDF or text, classifying it into General (<7 LPA), Dream (>=7 LPA), or Internship,
- * with CGPA criteria and backlog eligibility.
+ * Summarizes Job Description PDFs or text (supporting multiple PDF documents e.g. JD, assessment syllabus, guidelines),
+ * classifying into General (<7 LPA), Dream (>=7 LPA), or Internship, with CGPA criteria and backlog eligibility.
  */
 export async function summarizeJobDescription(params: {
   buffer?: Buffer;
   mimetype?: string;
   text?: string;
+  files?: UploadedFileDoc[];
 }): Promise<JdSummaryResult> {
-  const extractedText = params.text || (params.buffer ? extractTextFromPdfBuffer(params.buffer) : '');
+  const fileList: UploadedFileDoc[] = [];
+  if (params.files && params.files.length > 0) {
+    fileList.push(...params.files);
+  } else if (params.buffer) {
+    fileList.push({
+      buffer: params.buffer,
+      mimetype: params.mimetype,
+      originalname: 'document.pdf',
+    });
+  }
+
+  const textChunks: string[] = [];
+  if (params.text?.trim()) {
+    textChunks.push(params.text.trim());
+  }
+
+  for (const f of fileList) {
+    const docName = f.originalname || 'Document';
+    const extracted = extractTextFromPdfBuffer(f.buffer);
+    textChunks.push(`=== Document: ${docName} ===\n${extracted}`);
+  }
+
+  const combinedText = textChunks.join('\n\n');
 
   // Attempt AI processing with Gemini if credentials exist
   const apiKey = env.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-  if (apiKey && (params.buffer || extractedText)) {
+  if (apiKey && (fileList.length > 0 || combinedText)) {
     try {
       const ai = new GoogleGenAI({ apiKey });
       const model = env.MAPPING_MODEL || process.env.MAPPING_MODEL || 'gemini-2.5-flash';
 
       const promptInstructions = `
 You are an expert college placement director.
-Analyze this recruitment Job Description (JD) and return ONLY a valid JSON object with the exact keys:
+Analyze this recruitment Job Description (JD) and any accompanying documents (e.g. guidelines, assessment pattern, company profile) and return ONLY a valid JSON object with the exact keys:
 {
   "company": "Company Name",
   "role": "Job Role / Title",
-  "summary": "2-3 sentence overview of company, role, responsibilities and key requirements",
+  "summary": "2-3 sentence overview of company, role, responsibilities and key requirements synthesized across all provided documents",
   "packageCategory": "GENERAL" or "DREAM" or "INTERNSHIP",
   "ctcLpa": numeric compensation in LPA (e.g. 8.5) or null,
   "minCgpa": numeric minimum CGPA (0-10) or 0 if not specified,
   "allowBacklogs": boolean (true if active backlogs/supply/arrears are explicitly allowed, false if zero backlogs required),
-  "eligibleBranches": array of uppercase department codes from ["CSE", "ECE", "MECH", "CIVIL", "IT", "EE", "AIDS"]
+  "eligibleBranches": array of uppercase department codes from ["CSE", "ECE", "EEE", "IT", "CIVIL", "MCA", "MECH", "AIDS"]
 }
 
 Package Category Classification Rules:
@@ -204,32 +234,28 @@ Package Category Classification Rules:
 
 Provide pure JSON only.`;
 
-      let contents: any;
-      if (params.buffer && params.mimetype === 'application/pdf') {
-        contents = [
-          {
-            role: 'user',
-            parts: [
-              {
-                inlineData: {
-                  mimeType: 'application/pdf',
-                  data: params.buffer.toString('base64'),
-                },
-              },
-              { text: promptInstructions },
-            ],
+      const parts: any[] = [];
+      const pdfFiles = fileList.filter((f) => f.mimetype === 'application/pdf');
+      // Pass up to 5 PDFs as inline data
+      for (const pdf of pdfFiles.slice(0, 5)) {
+        parts.push({
+          inlineData: {
+            mimeType: 'application/pdf',
+            data: pdf.buffer.toString('base64'),
           },
-        ];
-      } else {
-        contents = [
-          {
-            role: 'user',
-            parts: [
-              { text: `${promptInstructions}\n\nJob Description Content:\n${extractedText.slice(0, 8000)}` },
-            ],
-          },
-        ];
+        });
       }
+
+      parts.push({
+        text: `${promptInstructions}\n\nAll Uploaded Documents Content:\n${combinedText.slice(0, 15000)}`,
+      });
+
+      const contents = [
+        {
+          role: 'user',
+          parts,
+        },
+      ];
 
       const response = await ai.models.generateContent({
         model,
@@ -266,6 +292,6 @@ Provide pure JSON only.`;
   }
 
   // Graceful deterministic heuristic fallback
-  return parseJdDeterministically(extractedText);
+  return parseJdDeterministically(combinedText);
 }
 

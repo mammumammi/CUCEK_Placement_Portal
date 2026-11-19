@@ -21,6 +21,16 @@ export const driveExtraFieldSchema = z.object({
 export type DriveExtraFieldInput = z.infer<typeof driveExtraFieldSchema>;
 
 /**
+ * Validation schema for company-specific required Excel export format mapping.
+ */
+export const companyFormatColumnSchema = z.object({
+  companyHeader: z.string().trim().min(1, 'Company header is required'),
+  sourceField: z.string().trim().min(1, 'Source field is required'),
+});
+
+export type CompanyFormatColumn = z.infer<typeof companyFormatColumnSchema>;
+
+/**
  * Schema for creating a recruitment drive via POST /api/drives.
  * Supports multipart form string serialization and coercions.
  */
@@ -82,6 +92,30 @@ export const createDriveSchema = z.object({
     if (val === undefined || val === null || val === '') return [];
     return val;
   }, z.array(driveExtraFieldSchema).optional().default([])),
+  companyFormat: z.preprocess((val) => {
+    if (typeof val === 'string') {
+      try {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return [];
+      }
+    }
+    if (val === undefined || val === null || val === '') return [];
+    return val;
+  }, z.array(companyFormatColumnSchema).optional().default([])),
+  jdFileUrls: z.preprocess((val) => {
+    if (typeof val === 'string') {
+      try {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return [];
+      }
+    }
+    if (val === undefined || val === null || val === '') return [];
+    return val;
+  }, z.array(z.string().trim()).optional().default([])),
 });
 
 export type CreateDriveInput = z.infer<typeof createDriveSchema>;

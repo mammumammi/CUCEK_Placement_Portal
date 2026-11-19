@@ -9,11 +9,11 @@ import multer from 'multer';
 import type { Db } from '@/core/db/client';
 import { requireAuth, requireRoles } from '../auth/auth.middleware';
 import { PortalError } from '@/core/errors/portal-error';
-import { eq } from 'drizzle-orm';
-import { drives } from '@/core/db';
+import { eq, desc } from 'drizzle-orm';
+import { drives, applications, studentProfiles } from '@/core/db';
 import { defaultStorage } from '@/server/services/storage.service';
 import type { FileStorage } from '@/server/services/storage.service';
-import { createDriveSchema, updateRoundSchema } from './drives.schema';
+import { createDriveSchema, updateRoundSchema, driveExtraFieldSchema } from './drives.schema';
 import {
   createDrive,
   listDrives,
@@ -22,7 +22,11 @@ import {
   updateApplicationRound,
   getDriveStats,
 } from './drives.service';
-import { buildDriveExportWorkbook } from './export.service';
+import {
+  buildDriveExportWorkbook,
+  buildCompanyFormatWorkbook,
+  parseCompanyTemplateBuffer,
+} from './export.service';
 import { summarizeJobDescription } from './jd-summarizer.service';
 import { notifyEligibleStudentsForDrive } from './mail.service';
 
@@ -32,17 +36,23 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024, // 10MB max
   },
   fileFilter: (_req, file, cb) => {
+    const lowerName = file.originalname.toLowerCase();
     const isPdf =
       file.mimetype === 'application/pdf' ||
-      file.originalname.toLowerCase().endsWith('.pdf');
+      lowerName.endsWith('.pdf');
+    const isExcel =
+      file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      file.mimetype === 'application/vnd.ms-excel' ||
+      lowerName.endsWith('.xlsx') ||
+      lowerName.endsWith('.xls');
 
-    if (isPdf) {
+    if (isPdf || isExcel) {
       cb(null, true);
     } else {
       cb(
         new PortalError(
           'VALIDATION_ERROR',
-          'Only PDF files are supported for Job Description (JD)',
+          'Only PDF files are supported for Job Description (JD), and Excel (.xlsx, .xls) files are supported for company templates',
           400
         )
       );
@@ -93,18 +103,19 @@ export function createDrivesRouter(
     async (req: Request, res: Response, next: NextFunction) => {
       try {
         const input = createDriveSchema.parse(req.body);
-        const uploadedFile =
-          req.file ??
-          (Array.isArray(req.files) && req.files.length > 0
-            ? (req.files[0] as Express.Multer.File)
-            : undefined);
+        const uploadedFiles: Express.Multer.File[] = [];
+        if (req.file) {
+          uploadedFiles.push(req.file);
+        } else if (Array.isArray(req.files) && req.files.length > 0) {
+          uploadedFiles.push(...(req.files as Express.Multer.File[]));
+        }
 
         const created = await createDrive(
           db,
           storage,
           req.user!,
           input,
-          uploadedFile
+          uploadedFiles.length > 0 ? uploadedFiles : undefined
         );
 
         res.status(201).json(created);
@@ -114,9 +125,53 @@ export function createDrivesRouter(
     }
   );
 
-  // POST /api/drives/summarize-jd (JD PDF or text summarizer using Gemini AI)
+  // POST /api/drives/summarize-jd (JD PDF(s) or text summarizer using Gemini AI)
   router.post(
     '/summarize-jd',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR', 'BRANCH_COORDINATOR'),
+    (req: Request, res: Response, next: NextFunction) => {
+      upload.any()(req, res, (err: unknown) => {
+        if (err) return next(err);
+        next();
+      });
+    },
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const uploadedFiles: Express.Multer.File[] = [];
+        if (req.file) {
+          uploadedFiles.push(req.file);
+        } else if (Array.isArray(req.files) && req.files.length > 0) {
+          uploadedFiles.push(...(req.files as Express.Multer.File[]));
+        }
+
+        const text = typeof req.body.text === 'string' ? req.body.text : undefined;
+
+        if (uploadedFiles.length === 0 && !text) {
+          throw new PortalError('VALIDATION_ERROR', 'Please provide at least one JD PDF file or text content', 400);
+        }
+
+        const summary = await summarizeJobDescription({
+          buffer: uploadedFiles[0]?.buffer,
+          mimetype: uploadedFiles[0]?.mimetype,
+          text,
+          files: uploadedFiles.map((f) => ({
+            buffer: f.buffer,
+            mimetype: f.mimetype,
+            originalname: f.originalname,
+          })),
+        });
+
+        res.status(200).json(summary);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // POST /api/drives/parse-company-template (Upload company Excel template to extract required headers & auto-map)
+  router.post(
+    '/parse-company-template',
     requireAuth,
     requireRoles('MAIN_COORDINATOR', 'BRANCH_COORDINATOR'),
     (req: Request, res: Response, next: NextFunction) => {
@@ -133,19 +188,12 @@ export function createDrivesRouter(
             ? (req.files[0] as Express.Multer.File)
             : undefined);
 
-        const text = typeof req.body.text === 'string' ? req.body.text : undefined;
-
-        if (!file && !text) {
-          throw new PortalError('VALIDATION_ERROR', 'Please provide a JD PDF file or text content', 400);
+        if (!file) {
+          throw new PortalError('VALIDATION_ERROR', 'Please upload a company Excel template (.xlsx)', 400);
         }
 
-        const summary = await summarizeJobDescription({
-          buffer: file?.buffer,
-          mimetype: file?.mimetype,
-          text,
-        });
-
-        res.status(200).json(summary);
+        const parsed = await parseCompanyTemplateBuffer(file.buffer);
+        res.status(200).json(parsed);
       } catch (err) {
         next(err);
       }
@@ -166,6 +214,113 @@ export function createDrivesRouter(
         const baseUrl = req.body.baseUrl || `${req.protocol}://${req.get('host')}`.replace(':4000', ':3000');
         const result = await notifyEligibleStudentsForDrive(db, driveId, baseUrl);
         res.status(200).json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // GET /api/drives/public-stats (Public placement highlights & department statistics)
+  router.get('/public-stats', async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const allProfiles = await db.select().from(studentProfiles);
+      const totalStudents = allProfiles.length;
+
+      const placedApps = await db
+        .select({
+          studentUserId: applications.studentUserId,
+          driveId: applications.driveId,
+          company: drives.company,
+          role: drives.role,
+          ctcLpa: drives.ctcLpa,
+        })
+        .from(applications)
+        .innerJoin(drives, eq(applications.driveId, drives.id))
+        .where(eq(applications.placed, true));
+
+      const placedStudentUserIds = new Set(placedApps.map((p) => p.studentUserId));
+      const totalPlaced = placedStudentUserIds.size;
+      const placementRate = totalStudents > 0 ? Number(((totalPlaced / totalStudents) * 100).toFixed(1)) : 0;
+
+      const validCtcs = placedApps.map((p) => p.ctcLpa).filter((c): c is number => typeof c === 'number' && c > 0);
+      const highestPackage = validCtcs.length > 0 ? Math.max(...validCtcs) : 0;
+      const averagePackage = validCtcs.length > 0 ? Number((validCtcs.reduce((a, b) => a + b, 0) / validCtcs.length).toFixed(1)) : 0;
+
+      const allDrives = await db.select().from(drives).orderBy(desc(drives.createdAt));
+      const featuredDrives = allDrives.slice(0, 6).map((d) => ({
+        id: d.id,
+        company: d.company,
+        role: d.role,
+        packageCategory: d.packageCategory,
+        ctcLpa: d.ctcLpa,
+        deadline: d.deadline,
+        eligibleBranches: d.eligibleBranches,
+        open: new Date(d.deadline).getTime() > Date.now(),
+      }));
+
+      const branches = ['CSE', 'ECE', 'EEE', 'IT', 'CIVIL', 'MCA'];
+      const branchBreakdown = branches.map((b) => {
+        const branchProfs = allProfiles.filter((p) => p.branch === b);
+        const branchUserIds = new Set(branchProfs.map((p) => p.userId));
+        const branchPlaced = placedApps.filter((p) => branchUserIds.has(p.studentUserId));
+        const branchPlacedCount = new Set(branchPlaced.map((p) => p.studentUserId)).size;
+        const bRate = branchProfs.length > 0 ? Number(((branchPlacedCount / branchProfs.length) * 100).toFixed(1)) : 0;
+        return {
+          branch: b,
+          total: branchProfs.length,
+          placed: branchPlacedCount,
+          placementRate: bRate,
+        };
+      });
+
+      const topCompanies = Array.from(new Set(placedApps.map((p) => p.company))).filter(Boolean);
+
+      res.status(200).json({
+        totalStudents,
+        totalPlaced,
+        placementRate,
+        highestPackage,
+        averagePackage,
+        totalDrives: allDrives.length,
+        branchBreakdown,
+        topCompanies,
+        featuredDrives,
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // PATCH /api/drives/:driveId/extra-fields (Coordinators can add/update dynamic batch info collection fields)
+  router.patch(
+    '/:driveId/extra-fields',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR', 'BRANCH_COORDINATOR'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const driveId = Array.isArray(req.params.driveId) ? req.params.driveId[0] : req.params.driveId;
+        const [drive] = await db.select().from(drives).where(eq(drives.id, driveId)).limit(1);
+        if (!drive) {
+          throw new PortalError('NOT_FOUND', `Drive "${driveId}" not found`, 404);
+        }
+
+        const existingFields: any[] = Array.isArray(drive.extraFields) ? [...drive.extraFields] : [];
+        let updatedFields = [...existingFields];
+
+        if (req.body.extraFields && Array.isArray(req.body.extraFields)) {
+          updatedFields = req.body.extraFields;
+        } else if (req.body.newField && typeof req.body.newField === 'object') {
+          const field = driveExtraFieldSchema.parse(req.body.newField);
+          const idx = updatedFields.findIndex((f) => f.key === field.key);
+          if (idx >= 0) {
+            updatedFields[idx] = field;
+          } else {
+            updatedFields.push(field);
+          }
+        }
+
+        await db.update(drives).set({ extraFields: updatedFields }).where(eq(drives.id, driveId));
+        res.status(200).json({ driveId, extraFields: updatedFields });
       } catch (err) {
         next(err);
       }
@@ -230,7 +385,7 @@ export function createDrivesRouter(
     }
   );
 
-  // GET /api/drives/:driveId/export (Generate Excel report: verified candidates + summary)
+  // GET /api/drives/:driveId/export (Generate Excel report: verified candidates + summary, or company format via ?format=company)
   router.get(
     '/:driveId/export',
     requireAuth,
@@ -251,7 +406,55 @@ export function createDrivesRouter(
           throw new PortalError('NOT_FOUND', `Drive "${driveId}" not found`, 404);
         }
 
-        const workbook = await buildDriveExportWorkbook(db, driveId, req.user!);
+        const isCompanyFormat = req.query.format === 'company';
+        const workbook = isCompanyFormat
+          ? await buildCompanyFormatWorkbook(db, driveId, req.user!)
+          : await buildDriveExportWorkbook(db, driveId, req.user!);
+
+        const buffer = await workbook.xlsx.writeBuffer();
+
+        const safeCompany = drive.company.replace(/[^a-zA-Z0-9_-]/g, '_');
+        const filename = isCompanyFormat
+          ? `${safeCompany}_Company_Format_Candidates.xlsx`
+          : `${safeCompany}_Candidates.xlsx`;
+
+        res.setHeader(
+          'Content-Type',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        );
+        res.setHeader(
+          'Content-Disposition',
+          `attachment; filename="${filename}"`
+        );
+        res.status(200).send(Buffer.from(buffer));
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // GET /api/drives/:driveId/export-company (Generate Excel formatted specifically to company required headers)
+  router.get(
+    '/:driveId/export-company',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR', 'BRANCH_COORDINATOR'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const driveId = Array.isArray(req.params.driveId)
+          ? req.params.driveId[0]
+          : req.params.driveId;
+
+        const [drive] = await db
+          .select()
+          .from(drives)
+          .where(eq(drives.id, driveId))
+          .limit(1);
+
+        if (!drive) {
+          throw new PortalError('NOT_FOUND', `Drive "${driveId}" not found`, 404);
+        }
+
+        const workbook = await buildCompanyFormatWorkbook(db, driveId, req.user!);
         const buffer = await workbook.xlsx.writeBuffer();
 
         const safeCompany = drive.company.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -261,7 +464,7 @@ export function createDrivesRouter(
         );
         res.setHeader(
           'Content-Disposition',
-          `attachment; filename="${safeCompany}_Candidates.xlsx"`
+          `attachment; filename="${safeCompany}_Company_Format_Candidates.xlsx"`
         );
         res.status(200).send(Buffer.from(buffer));
       } catch (err) {

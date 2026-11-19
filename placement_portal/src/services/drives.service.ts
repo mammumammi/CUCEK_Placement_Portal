@@ -15,6 +15,16 @@ export interface DriveExtraField {
   required: boolean;
 }
 
+export interface CompanyFormatColumn {
+  companyHeader: string;
+  sourceField: string;
+}
+
+export interface ParsedCompanyTemplate {
+  headers: string[];
+  suggestedColumns: CompanyFormatColumn[];
+}
+
 export interface DriveItem {
   id: string;
   company: string;
@@ -23,6 +33,8 @@ export interface DriveItem {
   packageCategory: PackageCategory;
   ctcLpa: number | null;
   jdFileUrl: string | null;
+  jdFileUrls?: string[];
+  companyFormat?: CompanyFormatColumn[];
   deadline: string;
   eligibleBranches: string[];
   minCgpa: number;
@@ -48,6 +60,36 @@ export interface JdSummaryResult {
   allowBacklogs: boolean;
   maxActiveBacklogs: number;
   eligibleBranches: string[];
+}
+
+export interface BranchPlacementStat {
+  branch: string;
+  total: number;
+  placed: number;
+  placementRate: number;
+}
+
+export interface PublicFeaturedDrive {
+  id: string;
+  company: string;
+  role: string | null;
+  packageCategory: PackageCategory;
+  ctcLpa: number | null;
+  deadline: string;
+  eligibleBranches: string[];
+  open: boolean;
+}
+
+export interface PublicPlacementStats {
+  totalStudents: number;
+  totalPlaced: number;
+  placementRate: number;
+  highestPackage: number;
+  averagePackage: number;
+  totalDrives: number;
+  branchBreakdown: BranchPlacementStat[];
+  topCompanies: string[];
+  featuredDrives: PublicFeaturedDrive[];
 }
 
 export interface NotificationRecipient {
@@ -111,11 +153,17 @@ export async function createDrive(formData: FormData): Promise<DriveItem & { not
 }
 
 /**
- * Analyzes and summarizes a Job Description (PDF file or raw text) using Gemini AI with deterministic fallback.
+ * Analyzes and summarizes one or multiple Job Description PDF files or raw text using Gemini AI with deterministic fallback.
  */
-export async function summarizeJd(params: { file?: File; text?: string }): Promise<JdSummaryResult> {
+export async function summarizeJd(params: {
+  files?: File[];
+  file?: File;
+  text?: string;
+}): Promise<JdSummaryResult> {
   const formData = new FormData();
-  if (params.file) {
+  if (params.files && params.files.length > 0) {
+    params.files.forEach((f) => formData.append('files', f));
+  } else if (params.file) {
     formData.append('file', params.file);
   }
   if (params.text) {
@@ -132,6 +180,51 @@ export async function summarizeJd(params: { file?: File; text?: string }): Promi
     }
   );
   return response.data;
+}
+
+/**
+ * Uploads a company required Excel template (.xlsx) to extract its header row and auto-suggest column mappings.
+ */
+export async function parseCompanyTemplate(file: File): Promise<ParsedCompanyTemplate> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await apiClient.post<ParsedCompanyTemplate>(
+    '/drives/parse-company-template',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+  return response.data;
+}
+
+/**
+ * Downloads candidate reports in standard format or company required schema.
+ */
+export async function downloadDriveExport(
+  driveId: string,
+  options?: { format?: 'default' | 'company'; companyName?: string }
+): Promise<void> {
+  const isCompany = options?.format === 'company';
+  const url = isCompany ? `/drives/${driveId}/export-company` : `/drives/${driveId}/export`;
+  const response = await apiClient.get(url, { responseType: 'blob' });
+  const blob = new Blob([response.data], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  const safeCompany = (options?.companyName || 'Drive').replace(/[^a-zA-Z0-9_-]/g, '_');
+  link.download = isCompany
+    ? `${safeCompany}_Company_Format_Candidates.xlsx`
+    : `${safeCompany}_Candidates.xlsx`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(downloadUrl);
 }
 
 /**
@@ -153,6 +246,28 @@ export async function notifyEligibleStudents(
  */
 export async function getDriveStats(driveId: string): Promise<DriveStats> {
   const response = await apiClient.get<DriveStats>(`/drives/${driveId}/stats`);
+  return response.data;
+}
+
+/**
+ * Retrieves public placement highlights and department breakdown for the public homepage.
+ */
+export async function getPublicPlacementStats(): Promise<PublicPlacementStats> {
+  const response = await apiClient.get<PublicPlacementStats>('/drives/public-stats');
+  return response.data;
+}
+
+/**
+ * Appends or replaces dynamic questionnaire fields to collect additional info as a batch from applicants.
+ */
+export async function updateDriveExtraFields(
+  driveId: string,
+  payload: { extraFields?: DriveExtraField[]; newField?: DriveExtraField }
+): Promise<{ driveId: string; extraFields: DriveExtraField[] }> {
+  const response = await apiClient.patch<{ driveId: string; extraFields: DriveExtraField[] }>(
+    `/drives/${driveId}/extra-fields`,
+    payload
+  );
   return response.data;
 }
 

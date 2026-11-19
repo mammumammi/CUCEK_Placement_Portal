@@ -57,6 +57,13 @@
       "when": 1794682754324,
       "tag": "0007_tiresome_gamora",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1795078063948,
+      "tag": "0008_dear_champions",
+      "breakpoints": true
     }
   ]
 }

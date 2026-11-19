@@ -95,17 +95,36 @@ export async function createDrive(
   storage: FileStorage,
   actor: DriveActor,
   input: CreateDriveInput,
-  file?: { originalname: string; buffer: Buffer; mimetype: string }
+  fileOrFiles?:
+    | { originalname: string; buffer: Buffer; mimetype: string }
+    | Array<{ originalname: string; buffer: Buffer; mimetype: string }>
 ) {
   if (actor.role !== 'MAIN_COORDINATOR') {
     throw new PortalError('FORBIDDEN', 'Only main coordinators can create recruitment drives', 403);
   }
 
-  let jdFileUrl: string | null = null;
-  if (file) {
-    const saved = await storage.save(file.originalname, file.buffer, file.mimetype);
-    jdFileUrl = saved.url;
+  const filesList: Array<{ originalname: string; buffer: Buffer; mimetype: string }> = [];
+  if (Array.isArray(fileOrFiles)) {
+    filesList.push(...fileOrFiles);
+  } else if (fileOrFiles) {
+    filesList.push(fileOrFiles);
   }
+
+  const jdFileUrls: string[] = [];
+  for (const f of filesList) {
+    const saved = await storage.save(f.originalname, f.buffer, f.mimetype);
+    jdFileUrls.push(saved.url);
+  }
+
+  if (Array.isArray(input.jdFileUrls)) {
+    for (const u of input.jdFileUrls) {
+      if (u && !jdFileUrls.includes(u)) {
+        jdFileUrls.push(u);
+      }
+    }
+  }
+
+  const jdFileUrl = jdFileUrls.length > 0 ? jdFileUrls[0] : null;
 
   const driveId = crypto.randomUUID();
   const allowBacklogs = Boolean(input.allowBacklogs || input.maxActiveBacklogs > 0);
@@ -119,6 +138,8 @@ export async function createDrive(
     packageCategory: input.packageCategory ?? 'GENERAL',
     ctcLpa: input.ctcLpa ?? null,
     jdFileUrl,
+    jdFileUrls,
+    companyFormat: input.companyFormat ?? [],
     deadline: new Date(input.deadline).toISOString(),
     eligibleBranches: input.eligibleBranches,
     minCgpa: input.minCgpa,

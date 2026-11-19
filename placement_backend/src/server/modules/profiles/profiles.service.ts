@@ -5,7 +5,7 @@
 
 import { eq, and, desc } from 'drizzle-orm';
 import type { Db } from '@/core/db/client';
-import { users, studentProfiles, semesterResults, auditLogs, correctionRequests } from '@/core/db';
+import { users, studentProfiles, semesterResults, auditLogs, correctionRequests, applications, drives } from '@/core/db';
 import { PortalError } from '@/core/errors/portal-error';
 import { calculateCreditBasedCgpa } from '../cgpa/cgpa.service';
 import { calculateAgeFromDob } from '../registration/registration.service';
@@ -199,22 +199,155 @@ export async function listProfiles(
   actor: ProfileActor,
   branchQuery?: string
 ) {
+  let profilesList;
+
   if (actor.role === 'BRANCH_COORDINATOR') {
     // Strictly forced to own branch
-    return db
+    profilesList = await db
       .select()
       .from(studentProfiles)
       .where(eq(studentProfiles.branch, actor.branch!));
-  }
-
-  if (branchQuery) {
-    return db
+  } else if (branchQuery) {
+    profilesList = await db
       .select()
       .from(studentProfiles)
       .where(eq(studentProfiles.branch, branchQuery));
+  } else {
+    profilesList = await db.select().from(studentProfiles);
   }
 
-  return db.select().from(studentProfiles);
+  if (profilesList.length === 0) {
+    return [];
+  }
+
+  // Fetch placed applications joined with drives
+  const placedApps = await db
+    .select({
+      studentUserId: applications.studentUserId,
+      driveId: applications.driveId,
+      company: drives.company,
+      role: drives.role,
+      ctcLpa: drives.ctcLpa,
+      placedAt: applications.createdAt,
+    })
+    .from(applications)
+    .innerJoin(drives, eq(applications.driveId, drives.id))
+    .where(eq(applications.placed, true));
+
+  const placedMap = new Map<string, (typeof placedApps)[0]>();
+  for (const p of placedApps) {
+    placedMap.set(p.studentUserId, p);
+  }
+
+  // Fetch all semesterResults
+  const allSemesters = await db
+    .select()
+    .from(semesterResults)
+    .orderBy(semesterResults.semester);
+
+  const semMap = new Map<string, typeof allSemesters>();
+  for (const s of allSemesters) {
+    if (!semMap.has(s.userId)) {
+      semMap.set(s.userId, []);
+    }
+    semMap.get(s.userId)!.push(s);
+  }
+
+  return profilesList.map((p) => {
+    const placed = placedMap.get(p.userId);
+    const sems = semMap.get(p.userId) || [];
+    return {
+      ...p,
+      semesters: sems,
+      placement: placed
+        ? {
+            isPlaced: true,
+            company: placed.company,
+            role: placed.role,
+            ctcLpa: placed.ctcLpa,
+            placedAt: placed.placedAt,
+          }
+        : {
+            isPlaced: false,
+            company: null,
+            role: null,
+            ctcLpa: null,
+            placedAt: null,
+          },
+    };
+  });
+}
+
+/**
+ * Computes placement statistics and candidate metrics scoped to a department/branch.
+ */
+export async function getDepartmentStats(
+  db: Db,
+  actor: ProfileActor,
+  branchQuery?: string
+) {
+  const targetBranch = actor.role === 'BRANCH_COORDINATOR' ? actor.branch! : (branchQuery || null);
+
+  const profiles = targetBranch
+    ? await db.select().from(studentProfiles).where(eq(studentProfiles.branch, targetBranch))
+    : await db.select().from(studentProfiles);
+
+  const userIds = profiles.map((p) => p.userId);
+
+  // Placed applications
+  const placedApps = await db
+    .select({
+      studentUserId: applications.studentUserId,
+      driveId: applications.driveId,
+      company: drives.company,
+      role: drives.role,
+      ctcLpa: drives.ctcLpa,
+    })
+    .from(applications)
+    .innerJoin(drives, eq(applications.driveId, drives.id))
+    .where(eq(applications.placed, true));
+
+  const targetPlaced = placedApps.filter((p) => userIds.includes(p.studentUserId));
+  const placedStudentUserIds = new Set(targetPlaced.map((p) => p.studentUserId));
+
+  const totalStudents = profiles.length;
+  const placedCount = placedStudentUserIds.size;
+  const unplacedCount = Math.max(0, totalStudents - placedCount);
+  const placementRate = totalStudents > 0 ? Number(((placedCount / totalStudents) * 100).toFixed(1)) : 0;
+
+  const validCtcs = targetPlaced.map((p) => p.ctcLpa).filter((c): c is number => typeof c === 'number' && c > 0);
+  const highestPackage = validCtcs.length > 0 ? Math.max(...validCtcs) : 0;
+  const averagePackage = validCtcs.length > 0 ? Number((validCtcs.reduce((a, b) => a + b, 0) / validCtcs.length).toFixed(1)) : 0;
+
+  // Active drives eligible for this branch
+  const allDrives = await db.select().from(drives);
+  const activeDrives = allDrives.filter((d) => {
+    const isFuture = new Date(d.deadline).getTime() > Date.now();
+    if (!targetBranch) return isFuture;
+    return isFuture && d.eligibleBranches && d.eligibleBranches.includes(targetBranch);
+  });
+
+  return {
+    branch: targetBranch,
+    totalStudents,
+    placedCount,
+    unplacedCount,
+    placementRate,
+    highestPackage,
+    averagePackage,
+    activeDrivesCount: activeDrives.length,
+    placedStudents: targetPlaced.map((p) => {
+      const prof = profiles.find((pr) => pr.userId === p.studentUserId);
+      return {
+        studentId: prof?.studentId || '',
+        name: prof?.name || '',
+        branch: prof?.branch || '',
+        company: p.company,
+        role: p.role,
+        ctcLpa: p.ctcLpa,
+      };
+    }),
+  };
 }
 
 /**
@@ -596,62 +729,98 @@ export async function reviewCorrectionRequest(
 
   const now = new Date();
 
+  let changes: Record<string, unknown> = {};
+  try {
+    changes = JSON.parse(reqRecord.requestedChanges);
+  } catch {
+    changes = {};
+  }
+
+  const isDriveApplication = changes.type === 'DRIVE_APPLICATION';
+
   if (input.action === 'APPROVE') {
-    let changes: Record<string, unknown> = {};
-    try {
-      changes = JSON.parse(reqRecord.requestedChanges);
-    } catch {
-      changes = {};
-    }
-
-    // Adapt changes to ProfileCorrectionInput
-    const profileInput: ProfileCorrectionInput = {};
-    if (typeof changes.name === 'string') profileInput.name = changes.name;
-    if (typeof changes.batch === 'string') profileInput.batch = changes.batch;
-    if (typeof changes.email === 'string') profileInput.email = changes.email;
-    if (typeof changes.phone === 'string') profileInput.phone = changes.phone;
-    if (typeof changes.activeBacklogs === 'number') profileInput.activeBacklogs = changes.activeBacklogs;
-    if (typeof changes.resumeUrl === 'string') profileInput.resumeUrl = changes.resumeUrl;
-
-    // Check semester changes e.g. s1Sgpa, s1Credits or semesters array
-    const semestersList: { semester: number; sgpa: number; credits: number }[] = [];
-    if (Array.isArray(changes.semesters)) {
-      for (const sem of changes.semesters) {
-        if (typeof sem.semester === 'number' && typeof sem.sgpa === 'number' && typeof sem.credits === 'number') {
-          semestersList.push(sem);
-        }
+    if (isDriveApplication) {
+      // If this is a drive application request, verify the student's application in the spreadsheet
+      if (changes.applicationId) {
+        await db
+          .update(applications)
+          .set({
+            verified: true,
+            verifiedBy: actor.id,
+          })
+          .where(eq(applications.id, String(changes.applicationId)));
       }
+
+      await db
+        .update(correctionRequests)
+        .set({
+          status: 'APPROVED',
+          reviewedBy: actor.id,
+          reviewerRemarks: input.remarks || 'Application verified and approved by coordinator',
+          updatedAt: now,
+        })
+        .where(eq(correctionRequests.id, requestId));
     } else {
-      for (let sem = 1; sem <= 6; sem++) {
-        const sgpaKey = `s${sem}Sgpa`;
-        const creditsKey = `s${sem}Credits`;
-        if (typeof changes[sgpaKey] === 'number') {
-          semestersList.push({
-            semester: sem,
-            sgpa: Number(changes[sgpaKey]),
-            credits: typeof changes[creditsKey] === 'number' ? Number(changes[creditsKey]) : 20,
-          });
+      // Adapt changes to ProfileCorrectionInput
+      const profileInput: ProfileCorrectionInput = {};
+      if (typeof changes.name === 'string') profileInput.name = changes.name;
+      if (typeof changes.batch === 'string') profileInput.batch = changes.batch;
+      if (typeof changes.email === 'string') profileInput.email = changes.email;
+      if (typeof changes.phone === 'string') profileInput.phone = changes.phone;
+      if (typeof changes.activeBacklogs === 'number') profileInput.activeBacklogs = changes.activeBacklogs;
+      if (typeof changes.resumeUrl === 'string') profileInput.resumeUrl = changes.resumeUrl;
+
+      // Check semester changes e.g. s1Sgpa, s1Credits or semesters array
+      const semestersList: { semester: number; sgpa: number; credits: number }[] = [];
+      if (Array.isArray(changes.semesters)) {
+        for (const sem of changes.semesters) {
+          if (typeof sem.semester === 'number' && typeof sem.sgpa === 'number' && typeof sem.credits === 'number') {
+            semestersList.push(sem);
+          }
+        }
+      } else {
+        for (let sem = 1; sem <= 6; sem++) {
+          const sgpaKey = `s${sem}Sgpa`;
+          const creditsKey = `s${sem}Credits`;
+          if (typeof changes[sgpaKey] === 'number') {
+            semestersList.push({
+              semester: sem,
+              sgpa: Number(changes[sgpaKey]),
+              credits: typeof changes[creditsKey] === 'number' ? Number(changes[creditsKey]) : 20,
+            });
+          }
         }
       }
+
+      if (semestersList.length > 0) {
+        profileInput.semesters = semestersList;
+      }
+
+      // Apply the correction using coordinator authority
+      await correctStudentProfile(db, actor, reqRecord.studentId, profileInput);
+
+      await db
+        .update(correctionRequests)
+        .set({
+          status: 'APPROVED',
+          reviewedBy: actor.id,
+          reviewerRemarks: input.remarks || null,
+          updatedAt: now,
+        })
+        .where(eq(correctionRequests.id, requestId));
     }
-
-    if (semestersList.length > 0) {
-      profileInput.semesters = semestersList;
-    }
-
-    // Apply the correction using coordinator authority
-    await correctStudentProfile(db, actor, reqRecord.studentId, profileInput);
-
-    await db
-      .update(correctionRequests)
-      .set({
-        status: 'APPROVED',
-        reviewedBy: actor.id,
-        reviewerRemarks: input.remarks || null,
-        updatedAt: now,
-      })
-      .where(eq(correctionRequests.id, requestId));
   } else {
+    // REJECT
+    if (isDriveApplication && changes.applicationId) {
+      await db
+        .update(applications)
+        .set({
+          verified: false,
+          verifiedBy: actor.id,
+        })
+        .where(eq(applications.id, String(changes.applicationId)));
+    }
+
     await db
       .update(correctionRequests)
       .set({

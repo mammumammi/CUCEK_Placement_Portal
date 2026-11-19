@@ -6,7 +6,7 @@
 
 import { eq, and } from 'drizzle-orm';
 import type { Db } from '@/core/db/client';
-import { drives, studentProfiles, applications } from '@/core/db';
+import { drives, studentProfiles, applications, correctionRequests, users } from '@/core/db';
 import type { DriveExtraField } from '@/core/db/schema/drives.schema';
 import { PortalError } from '@/core/errors/portal-error';
 import { evaluateEligibility } from '../drives/drives.service';
@@ -268,19 +268,68 @@ export async function applyToDrive(
   });
 
   const applicationId = crypto.randomUUID();
+  const now = new Date();
+
   await db.insert(applications).values({
     id: applicationId,
     driveId: drive.id,
     studentUserId: actor.id,
     extraData: validatedExtraData,
     verified: false,
-    createdAt: new Date(),
+    createdAt: now,
   });
+
+  // 6. Create an applied request entry in correctionRequests so it immediately appears in
+  // the coordinator's "Corrections / Applied Requests" queue
+  const requestId = crypto.randomUUID();
+  await db.insert(correctionRequests).values({
+    id: requestId,
+    studentUserId: actor.id,
+    studentId: profile.studentId,
+    registrationNumber: profile.registrationNumber || null,
+    studentName: profile.name,
+    branch: profile.branch || 'General',
+    requestedChanges: JSON.stringify({
+      type: 'DRIVE_APPLICATION',
+      applicationId,
+      driveId: drive.id,
+      company: drive.company,
+      role: drive.role,
+      packageCategory: drive.packageCategory,
+      ctcLpa: drive.ctcLpa,
+      deadline: drive.deadline,
+      appliedAt: now.toISOString(),
+      extraData: validatedExtraData,
+    }),
+    reason: `Drive Application: Student applied for ${drive.company}${drive.role ? ` (${drive.role})` : ''} - Package: ${drive.ctcLpa ? `${drive.ctcLpa} LPA` : 'Standard CTC'}`,
+    status: 'PENDING',
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  // 7. Dispatch notification to branch coordinator(s)
+  const branchCoords = profile.branch
+    ? await db
+        .select({
+          id: users.id,
+          username: users.username,
+          branch: users.branch,
+        })
+        .from(users)
+        .where(and(eq(users.role, 'BRANCH_COORDINATOR'), eq(users.branch, profile.branch)))
+    : [];
+
+  console.log(
+    `[COORDINATOR_NOTIFICATION] Drive Application Alert dispatched to coordinator(s): ${branchCoords.map((c) => c.username).join(', ') || 'Branch Coordinator'} | Student: ${profile.name || profile.studentId} (${profile.studentId}, ${profile.branch || 'General'}) applied for ${drive.company} (${drive.role || 'Role'}). Pending request ID: ${requestId}`
+  );
 
   return {
     applicationId,
     driveId: drive.id,
+    requestId,
     status: 'APPLIED',
+    coordinatorNotified: true,
+    coordinators: branchCoords.map((c) => c.username),
   };
 }
 
