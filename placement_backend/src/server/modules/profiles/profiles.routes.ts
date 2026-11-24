@@ -12,6 +12,7 @@ import {
   createCorrectionRequestSchema,
   reviewCorrectionRequestSchema,
   completeProfileSchema,
+  setBatchCurrentSemesterSchema,
 } from './profiles.schema';
 import {
   getMyProfile,
@@ -24,6 +25,7 @@ import {
   createCorrectionRequest,
   listCorrectionRequests,
   reviewCorrectionRequest,
+  updateBatchCurrentSemester,
 } from './profiles.service';
 
 /**
@@ -163,6 +165,22 @@ export function createProfilesRouter(db: Db): Router {
           requestId,
           input
         );
+        res.status(200).json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // PATCH /api/profiles/batch-current-semester (Coordinators configure reached semester for junior batches)
+  router.patch(
+    '/batch-current-semester',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR', 'BRANCH_COORDINATOR'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const input = setBatchCurrentSemesterSchema.parse(req.body);
+        const result = await updateBatchCurrentSemester(db, req.user!, input);
         res.status(200).json(result);
       } catch (err) {
         next(err);

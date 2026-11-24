@@ -102,6 +102,24 @@ describe('Company Format & Multi-Document JD Analysis', () => {
       expect(extractCandidateFieldValue(candidate, 'tenthPercentage')).toBe(92.5);
       expect(extractCandidateFieldValue(candidate, 'github')).toBe('https://github.com/johndoe');
     });
+
+    it('supports null option, to-be-filled option, and custom static/dynamic filling', () => {
+      // Null option produces empty string
+      expect(extractCandidateFieldValue(candidate, '__null__')).toBe('');
+      expect(extractCandidateFieldValue(candidate, 'null')).toBe('');
+      expect(extractCandidateFieldValue(candidate, 'leaveblank')).toBe('');
+
+      // To be filled option produces placeholder
+      expect(extractCandidateFieldValue(candidate, '__to_be_filled__')).toBe('To be filled');
+      expect(extractCandidateFieldValue(candidate, '__to_be_filled__', 'Pending Review')).toBe('Pending Review');
+
+      // Custom static value
+      expect(extractCandidateFieldValue(candidate, '__custom_value__', 'Bengaluru')).toBe('Bengaluru');
+      expect(extractCandidateFieldValue(candidate, 'custom:Onsite')).toBe('Onsite');
+
+      // Custom questionnaire field
+      expect(extractCandidateFieldValue(candidate, '__custom_field__', undefined, 'github')).toBe('https://github.com/johndoe');
+    });
   });
 
   describe('Multi-Document Job Description Summarization', () => {

@@ -6,7 +6,7 @@
 import { z } from 'zod';
 
 export const semesterUpdateSchema = z.object({
-  semester: z.coerce.number().int().min(1, 'Semester must be between 1 and 6').max(6, 'Semester must be between 1 and 6'),
+  semester: z.coerce.number().int().min(1, 'Semester must be between 1 and 8').max(8, 'Semester must be between 1 and 8'),
   credits: z.coerce.number().int().min(0, 'Credits must be non-negative'),
   sgpa: z.coerce.number().min(0, 'SGPA must be at least 0').max(10, 'SGPA cannot exceed 10'),
 });
@@ -38,11 +38,23 @@ export const profileCorrectionSchema = z
     s4MarksheetUrl: z.string().trim().optional().nullable(),
     s5MarksheetUrl: z.string().trim().optional().nullable(),
     s6MarksheetUrl: z.string().trim().optional().nullable(),
+    s7MarksheetUrl: z.string().trim().optional().nullable(),
+    s8MarksheetUrl: z.string().trim().optional().nullable(),
+    currentSemester: z.coerce.number().int().min(1).max(8).optional().nullable(),
+    additionalDetails: z.record(z.string(), z.unknown()).optional(),
     semesters: z.array(semesterUpdateSchema).optional(),
   })
   .strict();
 
 export type ProfileCorrectionInput = z.infer<typeof profileCorrectionSchema>;
+
+export const setBatchCurrentSemesterSchema = z.object({
+  branch: z.string().trim().optional(),
+  batch: z.string().trim().optional(),
+  currentSemester: z.coerce.number().int().min(1, 'Current semester must be between 1 and 8').max(8, 'Current semester must be between 1 and 8'),
+});
+
+export type SetBatchCurrentSemesterInput = z.infer<typeof setBatchCurrentSemesterSchema>;
 
 export const createCorrectionRequestSchema = z.object({
   requestedChanges: z.record(z.string(), z.unknown()),

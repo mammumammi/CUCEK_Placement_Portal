@@ -91,6 +91,18 @@ export const studentRowSchema = z
     s4MarksheetUrl: z.string().trim().optional(),
     s5MarksheetUrl: z.string().trim().optional(),
     s6MarksheetUrl: z.string().trim().optional(),
+    s7MarksheetUrl: z.string().trim().optional(),
+    s8MarksheetUrl: z.string().trim().optional(),
+    currentSemester: z.coerce.number().int().min(1).max(8).optional().nullable(),
+    fatherName: z.string().trim().optional().nullable(),
+    motherName: z.string().trim().optional().nullable(),
+    tenthPercentage: z.coerce.number().min(0).max(100).optional().nullable(),
+    twelfthPercentage: z.coerce.number().min(0).max(100).optional().nullable(),
+    panNumber: z.string().trim().optional().nullable(),
+    aadhaarNumber: z.string().trim().optional().nullable(),
+    githubUrl: z.string().trim().optional().nullable(),
+    linkedInUrl: z.string().trim().optional().nullable(),
+    address: z.string().trim().optional().nullable(),
     s1Sgpa: z.coerce
       .number()
       .min(0, 'SGPA must be >= 0')
@@ -158,6 +170,30 @@ export const studentRowSchema = z
       .optional()
       .nullable(),
     s6Credits: z.coerce
+      .number()
+      .int('Credits must be an integer')
+      .min(1, 'Credits must be > 0')
+      .optional()
+      .nullable(),
+    s7Sgpa: z.coerce
+      .number()
+      .min(0, 'SGPA must be >= 0')
+      .max(10, 'SGPA must be <= 10')
+      .optional()
+      .nullable(),
+    s7Credits: z.coerce
+      .number()
+      .int('Credits must be an integer')
+      .min(1, 'Credits must be > 0')
+      .optional()
+      .nullable(),
+    s8Sgpa: z.coerce
+      .number()
+      .min(0, 'SGPA must be >= 0')
+      .max(10, 'SGPA must be <= 10')
+      .optional()
+      .nullable(),
+    s8Credits: z.coerce
       .number()
       .int('Credits must be an integer')
       .min(1, 'Credits must be > 0')

@@ -7,10 +7,12 @@ import { relations } from 'drizzle-orm';
 import { users } from './schema/users.schema';
 import { studentProfiles, semesterResults, auditLogs, branchCredits } from './schema/profiles.schema';
 import { drives, applications, applicationRounds } from './schema/drives.schema';
+import { mockAssessments, mockSubmissions } from './schema/assessments.schema';
 
 export * from './schema/users.schema';
 export * from './schema/profiles.schema';
 export * from './schema/drives.schema';
+export * from './schema/assessments.schema';
 
 // ---------------------------------------------------------------------------
 // Relational Mappings
@@ -47,6 +49,26 @@ export const drivesRelations = relations(drives, ({ one, many }) => ({
     references: [users.id],
   }),
   applications: many(applications),
+  mockAssessments: many(mockAssessments),
+}));
+
+export const mockAssessmentsRelations = relations(mockAssessments, ({ one, many }) => ({
+  drive: one(drives, {
+    fields: [mockAssessments.driveId],
+    references: [drives.id],
+  }),
+  submissions: many(mockSubmissions),
+}));
+
+export const mockSubmissionsRelations = relations(mockSubmissions, ({ one }) => ({
+  assessment: one(mockAssessments, {
+    fields: [mockSubmissions.assessmentId],
+    references: [mockAssessments.id],
+  }),
+  student: one(users, {
+    fields: [mockSubmissions.studentUserId],
+    references: [users.id],
+  }),
 }));
 
 export const applicationsRelations = relations(applications, ({ one, many }) => ({
@@ -92,6 +114,8 @@ export const schema = {
   drives,
   applications,
   applicationRounds,
+  mockAssessments,
+  mockSubmissions,
   usersRelations,
   studentProfilesRelations,
   semesterResultsRelations,
@@ -99,4 +123,6 @@ export const schema = {
   applicationsRelations,
   applicationRoundsRelations,
   auditLogsRelations,
+  mockAssessmentsRelations,
+  mockSubmissionsRelations,
 };

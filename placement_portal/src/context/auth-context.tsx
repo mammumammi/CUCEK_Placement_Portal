@@ -94,6 +94,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
 }
 
 /**
+ * Hook to access authentication context optionally without throwing when rendered in isolated test harnesses.
+ */
+export function useOptionalAuth(): AuthContextType | null {
+  return useContext(AuthContext) ?? null;
+}
+
+/**
  * Hook to access authentication context.
  *
  * @throws Error if called outside of an AuthProvider.

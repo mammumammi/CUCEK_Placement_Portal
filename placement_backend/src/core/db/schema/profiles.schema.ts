@@ -41,6 +41,10 @@ export const studentProfiles = sqliteTable(
     s4MarksheetUrl: text('s4MarksheetUrl'),
     s5MarksheetUrl: text('s5MarksheetUrl'),
     s6MarksheetUrl: text('s6MarksheetUrl'),
+    s7MarksheetUrl: text('s7MarksheetUrl'),
+    s8MarksheetUrl: text('s8MarksheetUrl'),
+    currentSemester: integer('currentSemester').notNull().default(8),
+    additionalDetails: text('additionalDetails', { mode: 'json' }).$type<Record<string, unknown>>().default({}),
     isProfileComplete: integer('isProfileComplete', { mode: 'boolean' })
       .notNull()
       .default(false),

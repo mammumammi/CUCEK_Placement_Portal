@@ -26,6 +26,11 @@ import {
   buildDriveExportWorkbook,
   buildCompanyFormatWorkbook,
   parseCompanyTemplateBuffer,
+  buildComprehensiveStatisticsWorkbook,
+  saveReferenceStatsTemplate,
+  getReferenceStatsTemplateStatus,
+  getReferenceStatsTemplateBuffer,
+  deleteReferenceStatsTemplate,
 } from './export.service';
 import { summarizeJobDescription } from './jd-summarizer.service';
 import { notifyEligibleStudentsForDrive } from './mail.service';
@@ -290,6 +295,107 @@ export function createDrivesRouter(
       next(err);
     }
   });
+
+  // =========================================================================
+  // SUPER ADMIN COMPREHENSIVE PLACEMENT & DEPARTMENT STATISTICS EXCEL ROUTES
+  // =========================================================================
+
+  // GET /api/drives/statistics/template-status (Super Admin checks if a reference template has been uploaded)
+  router.get(
+    '/statistics/template-status',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR'),
+    async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        const status = await getReferenceStatsTemplateStatus();
+        res.status(200).json(status);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // POST /api/drives/statistics/template (Super Admin uploads a reference Excel template)
+  router.post(
+    '/statistics/template',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR'),
+    upload.single('template'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const file = req.file;
+        if (!file) {
+          throw new PortalError('VALIDATION_ERROR', 'No Excel template file was uploaded. Please attach a .xlsx or .xls file.', 400);
+        }
+
+        const meta = await saveReferenceStatsTemplate(file.buffer, file.originalname);
+        res.status(201).json({
+          success: true,
+          message: `Reference template "${meta.filename}" saved successfully with sheets: ${meta.sheetNames.join(', ')}`,
+          ...meta,
+        });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // GET /api/drives/statistics/download-template (Super Admin downloads the current reference template)
+  router.get(
+    '/statistics/download-template',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR'),
+    async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        const tpl = await getReferenceStatsTemplateBuffer();
+        if (!tpl) {
+          throw new PortalError('NOT_FOUND', 'No custom reference template has been uploaded yet', 404);
+        }
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${tpl.filename}"`);
+        res.status(200).send(tpl.buffer);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // DELETE /api/drives/statistics/template (Super Admin resets / clears reference template)
+  router.delete(
+    '/statistics/template',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR'),
+    async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        await deleteReferenceStatsTemplate();
+        res.status(200).json({ success: true, message: 'Reference template removed successfully' });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // GET /api/drives/statistics/export-excel (Super Admin generates multi-sheet placement & department statistics Excel)
+  router.get(
+    '/statistics/export-excel',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR'),
+    async (_req: Request, res: Response, next: NextFunction) => {
+      try {
+        const tpl = await getReferenceStatsTemplateBuffer();
+        const workbook = await buildComprehensiveStatisticsWorkbook(db, tpl?.buffer);
+        const buffer = await workbook.xlsx.writeBuffer();
+
+        const filename = `University_Placement_Statistics_Report_${new Date().getFullYear()}.xlsx`;
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.status(200).send(Buffer.from(buffer));
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
 
   // PATCH /api/drives/:driveId/extra-fields (Coordinators can add/update dynamic batch info collection fields)
   router.patch(

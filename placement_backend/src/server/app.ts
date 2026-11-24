@@ -18,6 +18,7 @@ import { createRegistrationRouter } from './modules/registration/registration.ro
 import { createProfilesRouter } from './modules/profiles/profiles.routes';
 import { createDrivesRouter } from './modules/drives/drives.routes';
 import { createSpreadsheetRouter } from './modules/spreadsheet/spreadsheet.routes';
+import { createAssessmentsRouter } from './modules/assessments/assessments.routes';
 import type { FileStorage } from './services/storage.service';
 
 export interface AppOptions {
@@ -58,6 +59,7 @@ export function createApp(db: Db, options?: AppOptions): Express {
   app.use('/api/profiles', createProfilesRouter(db));
   app.use('/api/drives', createDrivesRouter(db, options?.storage));
   app.use('/api/spreadsheet', createSpreadsheetRouter(db));
+  app.use('/api/assessments', createAssessmentsRouter(db));
 
   // 4. JSON 404 Handler for unmatched routes
   app.use((_req: Request, res: Response) => {

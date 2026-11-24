@@ -26,6 +26,8 @@ export type DriveExtraFieldInput = z.infer<typeof driveExtraFieldSchema>;
 export const companyFormatColumnSchema = z.object({
   companyHeader: z.string().trim().min(1, 'Company header is required'),
   sourceField: z.string().trim().min(1, 'Source field is required'),
+  customValue: z.string().optional().nullable(),
+  customKey: z.string().optional().nullable(),
 });
 
 export type CompanyFormatColumn = z.infer<typeof companyFormatColumnSchema>;

@@ -18,6 +18,8 @@ export interface DriveExtraField {
 export interface CompanyFormatColumn {
   companyHeader: string;
   sourceField: string;
+  customValue?: string;
+  customKey?: string;
 }
 
 export interface ParsedCompanyTemplate {
@@ -270,4 +272,67 @@ export async function updateDriveExtraFields(
   );
   return response.data;
 }
+
+export interface StatsTemplateStatus {
+  hasTemplate: boolean;
+  filename?: string;
+  uploadedAt?: string;
+  sheetNames?: string[];
+  sizeBytes?: number;
+}
+
+/**
+ * Checks whether the Super Admin has uploaded a reference statistics Excel template.
+ */
+export async function getStatsTemplateStatus(): Promise<StatsTemplateStatus> {
+  const response = await apiClient.get<StatsTemplateStatus>('/drives/statistics/template-status');
+  return response.data;
+}
+
+/**
+ * Uploads a reference Excel template (.xlsx) for placement and department statistics generation.
+ */
+export async function uploadStatsReferenceTemplate(
+  file: File
+): Promise<{ success: boolean; message: string; filename: string; sheetNames: string[] }> {
+  const formData = new FormData();
+  formData.append('template', file);
+
+  const response = await apiClient.post<{
+    success: boolean;
+    message: string;
+    filename: string;
+    sheetNames: string[];
+  }>('/drives/statistics/template', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+}
+
+/**
+ * Resets / deletes the active reference statistics template.
+ */
+export async function deleteStatsReferenceTemplate(): Promise<{ success: boolean; message: string }> {
+  const response = await apiClient.delete<{ success: boolean; message: string }>('/drives/statistics/template');
+  return response.data;
+}
+
+/**
+ * Returns direct URL for downloading the current reference template.
+ */
+export function getStatsTemplateDownloadUrl(): string {
+  const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+  return `${base}/drives/statistics/download-template`;
+}
+
+/**
+ * Returns direct URL for downloading the generated comprehensive placement statistics Excel.
+ */
+export function getComprehensiveStatisticsExportUrl(): string {
+  const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+  return `${base}/drives/statistics/export-excel`;
+}
+
 

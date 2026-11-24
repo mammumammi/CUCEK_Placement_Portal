@@ -48,6 +48,24 @@ export const CANONICAL_FIELDS: readonly CanonicalField[] = [
   { key: 's6Sgpa', label: 'Semester 6 SGPA', required: false, type: 'number' },
   { key: 's6Credits', label: 'Semester 6 Credits', required: false, type: 'number' },
   { key: 's6MarksheetUrl', label: 'Sem 6 Marksheet Link', required: false, type: 'string' },
+  { key: 's7Sgpa', label: 'Semester 7 SGPA', required: false, type: 'number' },
+  { key: 's7Credits', label: 'Semester 7 Credits', required: false, type: 'number' },
+  { key: 's7MarksheetUrl', label: 'Sem 7 Marksheet Link', required: false, type: 'string' },
+  { key: 's8Sgpa', label: 'Semester 8 SGPA', required: false, type: 'number' },
+  { key: 's8Credits', label: 'Semester 8 Credits', required: false, type: 'number' },
+  { key: 's8MarksheetUrl', label: 'Sem 8 Marksheet Link', required: false, type: 'string' },
+  { key: 'currentSemester', label: 'Current Semester Reached', required: false, type: 'number' },
+
+  // Candidate Personal & Background Information
+  { key: 'fatherName', label: "Father's Name", required: false, type: 'string' },
+  { key: 'motherName', label: "Mother's Name", required: false, type: 'string' },
+  { key: 'tenthPercentage', label: '10th Percentage / SSC', required: false, type: 'number' },
+  { key: 'twelfthPercentage', label: '12th / Diploma Percentage', required: false, type: 'number' },
+  { key: 'panNumber', label: 'PAN Card Number', required: false, type: 'string' },
+  { key: 'aadhaarNumber', label: 'Aadhaar Number', required: false, type: 'string' },
+  { key: 'githubUrl', label: 'GitHub Profile Link', required: false, type: 'string' },
+  { key: 'linkedInUrl', label: 'LinkedIn Profile Link', required: false, type: 'string' },
+  { key: 'address', label: 'Permanent Address', required: false, type: 'string' },
 ] as const;
 
 export type CanonicalFieldKey = (typeof CANONICAL_FIELDS)[number]['key'];

@@ -130,6 +130,24 @@ export async function createDrive(
   const allowBacklogs = Boolean(input.allowBacklogs || input.maxActiveBacklogs > 0);
   const maxActiveBacklogs = allowBacklogs ? (input.maxActiveBacklogs > 0 ? input.maxActiveBacklogs : 2) : 0;
 
+  // Auto-register any custom questionnaire fields defined in company format
+  const mergedExtraFields = [...(input.extraFields ?? [])];
+  if (Array.isArray(input.companyFormat)) {
+    for (const col of input.companyFormat) {
+      if (col.sourceField === '__custom_field__') {
+        const fieldKey = (col.customKey || col.companyHeader).trim().replace(/[^a-zA-Z0-9_]/g, '_');
+        if (!mergedExtraFields.some((f) => f.key === fieldKey)) {
+          mergedExtraFields.push({
+            key: fieldKey,
+            label: col.companyHeader,
+            type: 'text',
+            required: false,
+          });
+        }
+      }
+    }
+  }
+
   const newDrive = {
     id: driveId,
     company: input.company,
@@ -145,7 +163,7 @@ export async function createDrive(
     minCgpa: input.minCgpa,
     maxActiveBacklogs,
     allowBacklogs,
-    extraFields: input.extraFields ?? [],
+    extraFields: mergedExtraFields,
     totalRounds: input.totalRounds,
     createdBy: actor.id,
     createdAt: new Date(),

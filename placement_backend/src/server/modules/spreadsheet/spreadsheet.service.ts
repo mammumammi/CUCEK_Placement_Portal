@@ -262,10 +262,35 @@ export async function applyToDrive(
     throw new PortalError('CONFLICT', 'You have already applied to this drive', 409);
   }
 
-  // 5. Validate extraData if provided (allow partial on initial apply)
-  const validatedExtraData = validateExtraData(input.extraData, drive.extraFields, {
+  // 5. Merge with student's saved additionalDetails and validate extraData
+  const savedDetails = (profile.additionalDetails as Record<string, unknown>) || {};
+  const autofilledFromProfile: Record<string, unknown> = {};
+  if (drive.extraFields && drive.extraFields.length > 0) {
+    for (const field of drive.extraFields) {
+      if (savedDetails[field.key] !== undefined && savedDetails[field.key] !== null) {
+        autofilledFromProfile[field.key] = savedDetails[field.key];
+      }
+    }
+  }
+
+  const combinedExtraData = {
+    ...autofilledFromProfile,
+    ...(input.extraData || {}),
+  };
+
+  const validatedExtraData = validateExtraData(combinedExtraData, drive.extraFields, {
     allowPartial: true,
   });
+
+  // Persist newly provided extra fields back into studentProfiles.additionalDetails for future drives
+  const updatedAdditionalDetails = {
+    ...savedDetails,
+    ...validatedExtraData,
+  };
+  await db
+    .update(studentProfiles)
+    .set({ additionalDetails: updatedAdditionalDetails })
+    .where(eq(studentProfiles.userId, actor.id));
 
   const applicationId = crypto.randomUUID();
   const now = new Date();
@@ -371,18 +396,17 @@ export async function getDriveSpreadsheetRows(
       activeBacklogs: studentProfiles.activeBacklogs,
       cgpa: studentProfiles.cgpa,
       resumeUrl: studentProfiles.resumeUrl,
+      currentSemester: studentProfiles.currentSemester,
+      additionalDetails: studentProfiles.additionalDetails,
     })
     .from(applications)
     .innerJoin(studentProfiles, eq(applications.studentUserId, studentProfiles.userId));
 
   let rows;
   if (actor.role === 'STUDENT') {
-    rows = await baseQuery.where(
-      and(
-        eq(applications.driveId, driveId),
-        eq(applications.studentUserId, actor.id)
-      )
-    );
+    // Students can view all applicant rows for this drive in real-time,
+    // but getRowPermissions ensures each student can only edit their own row.
+    rows = await baseQuery.where(eq(applications.driveId, driveId));
   } else if (actor.role === 'BRANCH_COORDINATOR') {
     rows = await baseQuery.where(
       and(
@@ -408,8 +432,28 @@ export async function getDriveSpreadsheetRows(
       now
     );
 
+    // Merge any saved additionalDetails into extraData if not explicitly set
+    const effectiveExtraData = { ...(r.extraData || {}) };
+    const savedDetails = (r.additionalDetails as Record<string, unknown>) || {};
+    let autofilledCount = 0;
+    if (drive.extraFields && Array.isArray(drive.extraFields)) {
+      for (const field of drive.extraFields) {
+        if (
+          (effectiveExtraData[field.key] === undefined || effectiveExtraData[field.key] === null || effectiveExtraData[field.key] === '') &&
+          savedDetails[field.key] !== undefined &&
+          savedDetails[field.key] !== null &&
+          savedDetails[field.key] !== ''
+        ) {
+          effectiveExtraData[field.key] = savedDetails[field.key];
+          autofilledCount++;
+        }
+      }
+    }
+
     return {
       ...r,
+      extraData: effectiveExtraData,
+      autofilledCount,
       permissions,
     };
   });
@@ -552,6 +596,16 @@ export async function patchDriveRow(
       .update(applications)
       .set(updatePayload)
       .where(eq(applications.id, app.id));
+
+    // Persist updated extra fields back into studentProfiles.additionalDetails for future drives
+    if (body.extraData !== undefined && updatedExtraData) {
+      const currentDetails = (profile.additionalDetails as Record<string, unknown>) || {};
+      const mergedDetails = { ...currentDetails, ...updatedExtraData };
+      await db
+        .update(studentProfiles)
+        .set({ additionalDetails: mergedDetails })
+        .where(eq(studentProfiles.userId, profile.userId));
+    }
   }
 
   // 8. Return fresh row state with updated permissions

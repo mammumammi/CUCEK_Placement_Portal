@@ -38,6 +38,8 @@ export interface SpreadsheetRow {
   activeBacklogs: number;
   cgpa: number;
   resumeUrl: string | null;
+  currentSemester?: number;
+  additionalDetails?: Record<string, any>;
   permissions: RowPermissions;
 }
 

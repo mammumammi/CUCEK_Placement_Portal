@@ -1,18 +1,21 @@
 'use client';
 
 /**
- * @fileoverview Student Portal Dashboard.
+ * @fileoverview Student Portal Dashboard (Modern 2026 Black & White GSAP Theme).
  * Displays:
  * 1. Live academic profile & semester breakdown.
  * 2. Data recorrection request modal (submitted to branch coordinator).
  * 3. Real-time status tracking of submitted correction requests.
+ * 4. Active placement drives & simulated excel spreadsheet links.
+ * 5. First-time profile setup modal.
  *
  * @module app/student/page
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import gsap from 'gsap';
 import {
   LogOut,
   User,
@@ -31,6 +34,11 @@ import {
   ExternalLink,
   Briefcase,
   FileText,
+  ArrowRight,
+  ShieldCheck,
+  LayoutDashboard,
+  Layers,
+  Code2,
 } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { RequireAuth } from '@/components/auth/require-auth';
@@ -54,6 +62,7 @@ export default function StudentPage() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'profile' | 'drives' | 'semesters' | 'requests'>('profile');
 
   // Correction Request Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -82,6 +91,8 @@ export default function StudentPage() {
   const [semesterSgpa, setSemesterSgpa] = useState<Record<number, string>>({});
   const [reason, setReason] = useState<string>('');
 
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const handleLogout = async () => {
     await logout();
     router.push('/login');
@@ -100,30 +111,27 @@ export default function StudentPage() {
       setRequests(requestsData);
       setDrives(drivesData);
 
-      // Pre-fill setup modal if profile is incomplete
-      if (profileData && !profileData.isProfileComplete) {
-        setSetupName(profileData.name || '');
-        setSetupRegistrationNumber(profileData.registrationNumber || '');
-        setSetupBranch(profileData.branch || user?.branch || 'CSE');
-        setSetupBatch(profileData.batch || '2026');
-        setSetupDob(profileData.dob || '');
-        setSetupEmail(profileData.email || '');
-        setSetupPhone(profileData.phone || '');
-        setSetupMarksheetUrl(profileData.marksheetUrl || '');
-        setIsSetupModalOpen(true);
-      }
+      // Pre-populate correction fields from existing profile
+      if (profileData) {
+        setNewName(profileData.name || '');
+        setNewRegistrationNumber(profileData.registrationNumber || '');
+        setNewEmail(profileData.email || '');
+        setNewPhone(profileData.phone || '');
+        setNewBacklogs(String(profileData.activeBacklogs || 0));
 
-      // Pre-fill form initial values
-      setNewName(profileData.name || '');
-      setNewRegistrationNumber(profileData.registrationNumber || '');
-      setNewEmail(profileData.email || '');
-      setNewPhone(profileData.phone || '');
-      setNewBacklogs(String(profileData.activeBacklogs ?? 0));
-      const sMap: Record<number, string> = {};
-      profileData.semesters?.forEach((s) => {
-        sMap[s.semester] = String(s.sgpa);
-      });
-      setSemesterSgpa(sMap);
+        // If profile is incomplete, prompt initial setup modal
+        if (!profileData.isProfileComplete) {
+          setSetupName(profileData.name || '');
+          setSetupRegistrationNumber(profileData.registrationNumber || '');
+          setSetupBranch(profileData.branch || '');
+          setSetupBatch(profileData.batch || '');
+          setSetupDob(profileData.dob || '');
+          setSetupEmail(profileData.email || '');
+          setSetupPhone(profileData.phone || '');
+          setSetupMarksheetUrl(profileData.marksheetUrl || '');
+          setIsSetupModalOpen(true);
+        }
+      }
     } catch (err: unknown) {
       const axiosErr = err as {
         response?: { data?: { error?: { message?: string }; message?: string } };
@@ -143,6 +151,20 @@ export default function StudentPage() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  // GSAP animation
+  useEffect(() => {
+    if (!isLoading && containerRef.current) {
+      const ctx = gsap.context(() => {
+        gsap.fromTo(
+          '.gsap-student-card',
+          { opacity: 0, y: 20 },
+          { opacity: 1, y: 0, duration: 0.6, stagger: 0.08, ease: 'power2.out' }
+        );
+      }, containerRef);
+      return () => ctx.revert();
+    }
+  }, [isLoading]);
 
   const handleSubmitSetup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -230,7 +252,7 @@ export default function StudentPage() {
       }
 
       // Check semester SGPAs
-      for (let sem = 1; sem <= 6; sem++) {
+      for (let sem = 1; sem <= 8; sem++) {
         const val = semesterSgpa[sem];
         if (val !== undefined && val !== '') {
           const num = parseFloat(val);
@@ -274,63 +296,120 @@ export default function StudentPage() {
 
   return (
     <RequireAuth roles={['STUDENT']}>
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        {/* Top Navbar */}
-        <header className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-2xs">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+      <div
+        ref={containerRef}
+        className="min-h-screen bg-[#09090b] text-[#f4f4f5] font-sans antialiased selection:bg-white selection:text-black flex"
+      >
+        {/* ========================================================= */}
+        {/* LEFT SIDEBAR NAVIGATION (Modern 2026 Layout)               */}
+        {/* ========================================================= */}
+        <aside className="w-64 border-r border-neutral-800/80 bg-[#0c0c0e] flex-col justify-between p-6 shrink-0 hidden lg:flex sticky top-0 h-screen z-40">
+          <div className="space-y-8">
+            {/* Student Avatar & Identity */}
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-50 rounded-lg text-emerald-600">
-                <GraduationCap className="h-6 w-6" />
+              <div className="relative">
+                <div className="w-10 h-10 rounded-xl bg-neutral-900 border border-neutral-700 flex items-center justify-center text-white font-mono font-bold text-sm shadow-inner">
+                  {profile?.studentId ? profile.studentId.slice(-4) : 'STU'}
+                </div>
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 rounded-full ring-2 ring-[#0c0c0e] animate-pulse" />
               </div>
-              <div>
-                <h1 className="text-lg font-bold text-gray-900 leading-tight">
-                  Placement Portal
-                </h1>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
-                  Student Dashboard
-                </span>
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-white tracking-tight truncate leading-none">
+                  {profile?.name || user?.username || 'Student'}
+                </h2>
+                <p className="text-[11px] text-neutral-400 font-mono mt-1 truncate">
+                  {profile?.studentId || 'Candidate'}
+                </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-sm text-gray-700">
-                <User className="h-4 w-4 text-gray-400" />
-                <span className="font-medium">{user?.username}</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition"
-              >
-                <LogOut className="h-3.5 w-3.5 text-gray-500" />
-                Sign Out
-              </button>
-            </div>
+            {/* Navigation Tabs */}
+            <nav className="space-y-1.5">
+              {[
+                { id: 'profile', label: 'Academic Profile', icon: GraduationCap },
+                { id: 'drives', label: 'Active Placement Drives', icon: Briefcase },
+                { id: 'semesters', label: 'Semester Results', icon: Award },
+                { id: 'requests', label: 'Correction History', icon: Clock },
+              ].map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(item.id as 'profile' | 'drives' | 'semesters' | 'requests');
+                      const el = document.getElementById(item.id);
+                      if (el) el.scrollIntoView({ behavior: 'smooth' });
+                    }}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition text-left ${
+                      isActive
+                        ? 'bg-neutral-800/90 text-white shadow-xs border border-neutral-700/60'
+                        : 'text-neutral-400 hover:text-white hover:bg-neutral-900/60'
+                    }`}
+                  >
+                    <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-neutral-400'}`} />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
           </div>
-        </header>
 
-        {/* Main Content Area */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1 space-y-8">
-          {/* Header Banner */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">
-                Academic Profile & Verification
-              </h2>
-              <p className="mt-1 text-sm text-gray-500">
-                Review your official college records. If any details are inaccurate, submit a correction request to your Branch Coordinator.
+          {/* Bottom Actions & Outbound Links */}
+          <div className="space-y-4 pt-6 border-t border-neutral-800/80">
+            <div className="p-3 bg-neutral-900/80 border border-neutral-800 rounded-xl space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span className="text-[11px] font-bold text-white">Student Portal Active</span>
+              </div>
+              <p className="text-[10px] text-neutral-400">
+                Department: {profile?.branch || 'General'} &bull; Batch: {profile?.batch || '2026'}
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="space-y-1 text-xs font-medium text-neutral-400">
+              <Link
+                href="/"
+                className="flex items-center justify-between py-1 hover:text-white transition group"
+              >
+                <span>Public Placement Home</span>
+                <span className="text-[10px] text-neutral-500 group-hover:text-white">↗</span>
+              </Link>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full flex items-center justify-between py-1 text-red-400 hover:text-red-300 transition text-left"
+              >
+                <span>Sign Out</span>
+                <LogOut className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        {/* ========================================================= */}
+        {/* MAIN CONTENT AREA                                         */}
+        {/* ========================================================= */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Top Header Navbar */}
+          <header className="h-16 border-b border-neutral-800/80 bg-[#09090b]/80 backdrop-blur-xl sticky top-0 z-30 px-4 sm:px-8 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neutral-900 border border-neutral-700 text-xs font-medium text-neutral-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>Student Dashboard &bull; {profile?.branch || 'Stream'}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 onClick={loadData}
                 disabled={isLoading}
-                className="inline-flex items-center gap-1.5 px-3 py-2 border border-gray-300 rounded-lg text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition shadow-2xs"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-xs font-semibold text-white transition disabled:opacity-50"
               >
-                <RefreshCw className={`h-3.5 w-3.5 text-gray-500 ${isLoading ? 'animate-spin' : ''}`} />
-                Refresh
+                <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">Refresh Data</span>
               </button>
 
               <button
@@ -339,529 +418,565 @@ export default function StudentPage() {
                   setModalError(null);
                   setIsModalOpen(true);
                 }}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition shadow-xs"
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white text-black hover:bg-neutral-200 text-xs font-bold transition shadow-xs"
               >
                 <Edit3 className="h-3.5 w-3.5" />
-                Request Data Correction
+                <span>Request Correction</span>
               </button>
-            </div>
-          </div>
 
-          {/* Alert Messages */}
-          {error && (
-            <div
-              role="alert"
-              className="rounded-lg bg-red-50 p-4 border border-red-200 flex items-start gap-3"
-            >
-              <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
-              <div className="text-sm font-medium text-red-800">{error}</div>
-            </div>
-          )}
-
-          {successMsg && (
-            <div
-              role="status"
-              className="rounded-lg bg-emerald-50 p-4 border border-emerald-200 flex items-start gap-3"
-            >
-              <CheckCircle className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
-              <div className="text-sm font-medium text-emerald-800">{successMsg}</div>
-            </div>
-          )}
-
-          {/* Action Required: Incomplete Profile Banner */}
-          {profile && !profile.isProfileComplete && (
-            <div className="rounded-xl bg-amber-50 p-5 border border-amber-300 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="text-sm font-bold text-amber-900">
-                    Initial Profile Completion Required
-                  </h4>
-                  <p className="text-xs text-amber-700 mt-0.5">
-                    Your coordinator created your account using your Roll Number. Please complete your essential contact and student details before applying to placement drives.
-                  </p>
-                </div>
-              </div>
               <button
                 type="button"
-                onClick={() => {
-                  setSetupError(null);
-                  setIsSetupModalOpen(true);
-                }}
-                className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 transition shadow-2xs"
+                onClick={handleLogout}
+                className="p-2 rounded-full bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white transition lg:hidden"
+                title="Sign Out"
               >
-                <Sparkles className="h-3.5 w-3.5" />
-                Complete Profile Now
+                <LogOut className="h-4 w-4" />
               </button>
             </div>
-          )}
+          </header>
 
-          {isLoading ? (
-            <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-12 text-center text-sm text-gray-500">
-              <RefreshCw className="h-6 w-6 animate-spin mx-auto text-emerald-600 mb-2" />
-              Loading your academic records...
-            </div>
-          ) : profile ? (
-            <div className="space-y-8">
-              {/* Profile Details Card */}
-              <div className="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
-                <div className="p-6 border-b border-gray-200 bg-linear-to-r from-emerald-50/40 via-white to-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 bg-emerald-100 rounded-xl text-emerald-700 font-bold text-lg">
-                      {profile.studentId.slice(0, 4)}
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-gray-900">
-                        {profile.name || 'Student Name'}
-                      </h3>
-                      <p className="text-xs text-gray-500 font-mono mt-0.5">
-                        Roll No: <strong>{profile.studentId}</strong>
-                        {profile.registrationNumber ? (
-                          <> • Reg No: <strong>{profile.registrationNumber}</strong></>
-                        ) : null}
-                        {' '}• Department: <strong>{profile.branch}</strong> • Batch: <strong>{profile.batch}</strong>
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-4 self-start sm:self-auto">
-                    <div className="text-right">
-                      <span className="text-xs text-gray-500 block">Overall CGPA</span>
-                      <span className="text-2xl font-extrabold text-emerald-700">
-                        {profile.cgpa.toFixed(2)}
-                      </span>
-                    </div>
-
-                    <div className="h-10 w-px bg-gray-200 hidden sm:block" />
-
-                    <div className="text-right">
-                      <span className="text-xs text-gray-500 block">Percentage</span>
-                      <span className="text-xl font-extrabold text-blue-700">
-                        {typeof profile.percentage === 'number'
-                          ? `${profile.percentage.toFixed(1)}%`
-                          : profile.cgpa > 0
-                          ? `${(profile.cgpa * 9.5).toFixed(1)}%`
-                          : '—'}
-                      </span>
-                    </div>
-
-                    <div className="h-10 w-px bg-gray-200 hidden sm:block" />
-
-                    <div className="text-right">
-                      <span className="text-xs text-gray-500 block">Total Marks</span>
-                      <span className="text-sm font-bold text-gray-800 font-mono">
-                        {typeof profile.totalMarks === 'number'
-                          ? `${profile.totalMarks}${profile.maxMarks ? ` / ${profile.maxMarks}` : ''}`
-                          : '—'}
-                      </span>
-                    </div>
-
-                    <div className="h-10 w-px bg-gray-200 hidden sm:block" />
-
-                    <div className="text-right">
-                      <span className="text-xs text-gray-500 block">Active Backlogs</span>
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                          profile.activeBacklogs === 0
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-red-100 text-red-800'
-                        }`}
-                      >
-                        {profile.activeBacklogs}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 text-xs">
-                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <span className="text-gray-500 block font-medium">Registration No</span>
-                    <span className="text-gray-900 font-mono font-semibold mt-1 block truncate">
-                      {profile.registrationNumber || '—'}
-                    </span>
-                  </div>
-
-                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <span className="text-gray-500 block font-medium">Official Email</span>
-                    <span className="text-gray-900 font-mono font-semibold mt-1 block truncate">
-                      {profile.email || '—'}
-                    </span>
-                  </div>
-
-                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <span className="text-gray-500 block font-medium">Contact Phone</span>
-                    <span className="text-gray-900 font-semibold mt-1 block">
-                      {profile.phone || '—'}
-                    </span>
-                  </div>
-
-                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <span className="text-gray-500 block font-medium">Date of Birth</span>
-                    <span className="text-gray-900 font-semibold mt-1 block">
-                      {profile.dob || '—'}
-                    </span>
-                  </div>
-
-                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <span className="text-gray-500 block font-medium">Age</span>
-                    <span className="text-gray-900 font-semibold mt-1 block">
-                      {profile.age !== null && profile.age !== undefined ? `${profile.age} yrs` : '—'}
-                    </span>
-                  </div>
-
-                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <span className="text-gray-500 block font-medium">Department</span>
-                    <span className="text-gray-900 font-semibold mt-1 block">
-                      {profile.branch || '—'}
-                    </span>
-                  </div>
-
-                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <span className="text-gray-500 block font-medium">Passing Batch</span>
-                    <span className="text-gray-900 font-semibold mt-1 block">
-                      {profile.batch || '—'}
-                    </span>
-                  </div>
-
-                  {profile.marksheetUrl && (
-                    <div className="p-3 bg-blue-50/70 rounded-lg border border-blue-200 col-span-1 sm:col-span-2 md:col-span-3 lg:col-span-7 flex items-center justify-between">
-                      <div>
-                        <span className="text-blue-800 block font-semibold">Official Marksheet / Academic Transcript</span>
-                        <span className="text-blue-600 text-[11px]">Drive link uploaded by department coordinator</span>
-                      </div>
-                      <a
-                        href={profile.marksheetUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 transition shadow-2xs"
-                      >
-                        View Drive Marksheet 📄
-                      </a>
-                    </div>
-                  )}
-                </div>
+          {/* Main Scrollable Body */}
+          <main className="p-4 sm:p-8 lg:p-10 max-w-7xl w-full mx-auto space-y-10 flex-1">
+            {/* Alert Messages */}
+            {error && (
+              <div
+                role="alert"
+                className="rounded-2xl bg-red-950/40 p-4 border border-red-800/60 flex items-start gap-3 text-xs text-red-300"
+              >
+                <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+                <div className="font-medium">{error}</div>
               </div>
+            )}
 
-              {/* Available Placement Drives Section */}
-              <div className="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
-                <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Building2 className="h-5 w-5 text-indigo-600" />
-                    <div>
-                      <h3 className="text-base font-semibold text-gray-900">
-                        Available Recruitment Drives
-                      </h3>
-                      <p className="text-xs text-gray-500">
-                        Placement opportunities and company drives open for applications
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-xs font-semibold px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full">
-                    {drives.length} {drives.length === 1 ? 'Drive' : 'Drives'} Listed
-                  </span>
-                </div>
-
-                <div className="p-6">
-                  {drives.length === 0 ? (
-                    <p className="text-xs text-gray-500 text-center py-6">
-                      No recruitment drives are currently published.
-                    </p>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {drives.map((d) => (
-                        <div
-                          key={d.id}
-                          className="border border-gray-200 rounded-xl p-5 hover:border-indigo-300 hover:shadow-xs transition bg-gray-50/40 flex flex-col justify-between"
-                        >
-                          <div>
-                            <div className="flex items-start justify-between gap-2 mb-2">
-                              <div>
-                                <h4 className="font-bold text-gray-900 text-sm">{d.company}</h4>
-                                {d.role && <p className="text-xs text-gray-600">{d.role}</p>}
-                              </div>
-                              {d.packageCategory === 'DREAM' ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                                  ★ Dream
-                                </span>
-                              ) : d.packageCategory === 'INTERNSHIP' ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                                  ⏳ Internship
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                                  💼 General
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="space-y-1.5 text-xs text-gray-600 my-3">
-                              {d.ctcLpa !== null && (
-                                <div className="flex items-center justify-between">
-                                  <span className="text-gray-500">Package:</span>
-                                  <span className="font-bold text-emerald-700 font-mono">
-                                    {d.ctcLpa} LPA
-                                  </span>
-                                </div>
-                              )}
-                              <div className="flex items-center justify-between">
-                                <span className="text-gray-500">Min CGPA:</span>
-                                <span className="font-semibold text-gray-900">
-                                  {d.minCgpa > 0 ? d.minCgpa : 'None'}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <span className="text-gray-500">Supply / Backlogs:</span>
-                                <span
-                                  className={`font-semibold ${
-                                    d.allowBacklogs ? 'text-amber-700' : 'text-emerald-700'
-                                  }`}
-                                >
-                                  {d.allowBacklogs ? 'Allowed' : 'Not Allowed'}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <span className="text-gray-500">Deadline:</span>
-                                <span className="text-gray-700 font-medium text-[11px]">
-                                  {new Date(d.deadline).toLocaleDateString()}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Eligibility Badge */}
-                            <div className="pt-2 border-t border-gray-200 mb-3">
-                              {d.eligible === false ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded-md">
-                                  <AlertTriangle className="h-3 w-3" /> Not Eligible
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
-                                  <CheckCircle className="h-3 w-3" /> Eligible to Apply
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <Link
-                            href={`/drives/${d.id}`}
-                            className="inline-flex items-center justify-center gap-1.5 w-full py-2 px-3 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition shadow-2xs mt-2"
-                          >
-                            <span>Open Application Sheet</span>
-                            <ExternalLink className="h-3.5 w-3.5" />
-                          </Link>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+            {successMsg && (
+              <div
+                role="status"
+                className="rounded-2xl bg-emerald-950/40 p-4 border border-emerald-800/60 flex items-start gap-3 text-xs text-emerald-300"
+              >
+                <CheckCircle className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+                <div className="font-medium">{successMsg}</div>
               </div>
+            )}
 
-              {/* Semester Breakdown Table */}
-              <div className="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
-                <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Award className="h-5 w-5 text-emerald-600" />
-                    <h3 className="text-base font-semibold text-gray-900">
-                      Semester Results & Credit Breakdown
-                    </h3>
-                  </div>
-                  <span className="text-xs text-gray-500">
-                    Total Semesters: {profile.semesters?.length || 0}
-                  </span>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 text-xs">
-                    <thead className="bg-gray-50 font-semibold text-gray-600">
-                      <tr>
-                        <th className="px-4 py-3 text-left">Semester</th>
-                        <th className="px-4 py-3 text-left">Credits Earned</th>
-                        <th className="px-4 py-3 text-left">SGPA</th>
-                        <th className="px-4 py-3 text-left">Percentage</th>
-                        <th className="px-4 py-3 text-left">Credit Points</th>
-                        <th className="px-4 py-3 text-left">Marksheet</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 bg-white">
-                      {profile.semesters && profile.semesters.length > 0 ? (
-                        profile.semesters.map((s) => (
-                          <tr key={s.semester} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 font-semibold text-gray-900">
-                              Semester {s.semester}
-                            </td>
-                            <td className="px-4 py-3 text-gray-700 font-medium">
-                              {s.credits}
-                            </td>
-                            <td className="px-4 py-3 font-bold text-emerald-700">
-                              {s.sgpa.toFixed(2)}
-                            </td>
-                            <td className="px-4 py-3 font-bold text-blue-700">
-                              {typeof s.percentage === 'number'
-                                ? `${s.percentage.toFixed(1)}%`
-                                : `${(s.sgpa * 9.5).toFixed(1)}%`}
-                            </td>
-                            <td className="px-4 py-3 font-mono text-gray-600">
-                              {(s.credits * s.sgpa).toFixed(2)}
-                            </td>
-                            <td className="px-4 py-3">
-                              {s.marksheetUrl ? (
-                                <a
-                                  href={s.marksheetUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition"
-                                >
-                                  Drive Link 📄
-                                </a>
-                              ) : (
-                                <span className="text-gray-400">—</span>
-                              )}
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={6} className="px-4 py-6 text-center text-gray-400">
-                            No individual semester records found.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Applied Requests & Corrections History */}
-              <div className="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
-                <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <BookOpen className="h-5 w-5 text-emerald-600" />
-                    <h3 className="text-base font-semibold text-gray-900">
-                      Applied Requests &amp; Corrections History
-                    </h3>
-                  </div>
-                  <span className="text-xs text-gray-500">
-                    {requests.length} Request{requests.length === 1 ? '' : 's'}
-                  </span>
-                </div>
-
-                <div className="p-6">
-                  {requests.length === 0 ? (
-                    <p className="text-xs text-gray-500 text-center py-4">
-                      You haven’t submitted any drive applications or profile correction requests yet.
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      {requests.map((r) => {
-                        const changes = r.requestedChanges as Record<string, unknown>;
-                        const isDrive = changes?.type === 'DRIVE_APPLICATION';
-
-                        return (
-                          <div
-                            key={r.id}
-                            className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs transition ${
-                              isDrive
-                                ? 'bg-purple-50/50 border-purple-200'
-                                : 'bg-gray-50/50 border-gray-200'
-                            }`}
-                          >
-                            <div className="space-y-1.5 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                {isDrive ? (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                                    <Briefcase className="h-3 w-3" /> Drive Application
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200">
-                                    <FileText className="h-3 w-3" /> Profile Correction
-                                  </span>
-                                )}
-
-                                {r.status === 'PENDING' && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold bg-amber-100 text-amber-800">
-                                    <Clock className="h-3 w-3" /> Under Review by Coordinator
-                                  </span>
-                                )}
-                                {r.status === 'APPROVED' && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold bg-emerald-100 text-emerald-800">
-                                    <CheckCircle className="h-3 w-3" /> Verified &amp; Approved
-                                  </span>
-                                )}
-                                {r.status === 'REJECTED' && (
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-semibold bg-red-100 text-red-800">
-                                    <AlertTriangle className="h-3 w-3" /> Rejected
-                                  </span>
-                                )}
-                                <span className="text-gray-400">
-                                  {new Date(r.createdAt).toLocaleDateString()}
-                                </span>
-                              </div>
-
-                              {isDrive ? (
-                                <div className="pt-1">
-                                  <div className="font-bold text-gray-900 text-sm">
-                                    {String(changes.company || 'Company')} {changes.role ? `- ${String(changes.role)}` : ''}
-                                  </div>
-                                  <div className="text-xs text-gray-600 mt-0.5">
-                                    Package: <span className="font-mono font-bold text-emerald-700">{changes.ctcLpa ? `${changes.ctcLpa} LPA` : 'Standard'}</span> &bull; Status: Candidate application submitted to coordinator queue.
-                                  </div>
-                                  {typeof changes.driveId === 'string' && (
-                                    <Link
-                                      href={`/drives/${String(changes.driveId)}`}
-                                      className="inline-flex items-center gap-1 text-purple-700 hover:text-purple-900 font-semibold underline mt-1"
-                                    >
-                                      View Drive &amp; Fill Sheet
-                                    </Link>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="flex flex-wrap gap-2 pt-1">
-                                  {Object.entries(changes).map(([k, v]) => (
-                                    <span
-                                      key={k}
-                                      className="px-2 py-0.5 bg-white rounded border border-gray-200 text-gray-800 font-mono font-medium"
-                                    >
-                                      {k}: <strong>{String(v)}</strong>
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-
-                              <p className="text-gray-600 mt-1">
-                                <strong>Details / Reason:</strong> {r.reason}
-                              </p>
-
-                              {r.reviewerRemarks && (
-                                <p className="text-blue-700 bg-blue-50/80 p-2 rounded border border-blue-100 mt-1">
-                                  <strong>Coordinator Feedback:</strong> {r.reviewerRemarks}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </main>
-
-        {/* Modal: First-Login Profile Completion */}
-        {isSetupModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-gray-200">
-              <div className="p-6 border-b border-gray-200 flex items-center justify-between bg-linear-to-r from-amber-50/80 via-white to-amber-50/30">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-amber-100 text-amber-700 rounded-xl">
+            {/* Incomplete Profile Setup Banner */}
+            {profile && !profile.isProfileComplete && (
+              <div className="gsap-student-card rounded-3xl bg-[#141417] p-6 border border-amber-600/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3.5">
+                  <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400">
                     <Sparkles className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-gray-900">
+                    <h4 className="text-sm font-bold text-white">
+                      Initial Profile Setup Required
+                    </h4>
+                    <p className="text-xs text-neutral-400 mt-0.5">
+                      Your coordinator created your account via roll number. Please complete your official email and contact details to enable direct drive applications.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSetupError(null);
+                    setIsSetupModalOpen(true);
+                  }}
+                  className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-bold text-black bg-white hover:bg-neutral-200 transition shadow-sm"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>Complete Profile Now</span>
+                </button>
+              </div>
+            )}
+
+            {isLoading ? (
+              <div className="bg-[#101012] border border-neutral-800 rounded-3xl p-16 text-center text-xs text-neutral-400 space-y-3">
+                <RefreshCw className="h-7 w-7 animate-spin mx-auto text-white mb-2" />
+                <p className="font-semibold text-white">Loading your academic profile...</p>
+                <p className="text-neutral-500">Retrieving official semester scores, credits, and active drives</p>
+              </div>
+            ) : profile ? (
+              <div className="space-y-10">
+                {/* ========================================================= */}
+                {/* 1. ACADEMIC PROFILE & KPI HERO CARD                       */}
+                {/* ========================================================= */}
+                <section id="profile" className="gsap-student-card space-y-4">
+                  <div className="bg-[#101012] border border-neutral-800 rounded-3xl p-6 sm:p-8 space-y-6">
+                    {/* Header Banner */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-neutral-800">
+                      <div className="flex items-center gap-4">
+                        <div className="w-14 h-14 rounded-2xl bg-neutral-900 border border-neutral-700 flex items-center justify-center text-white font-mono font-bold text-xl shadow-inner">
+                          {profile.studentId.slice(-3)}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-xl sm:text-2xl font-black text-white">
+                              {profile.name || 'Candidate Name'}
+                            </h3>
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-neutral-800 text-neutral-300 border border-neutral-700">
+                              {profile.branch}
+                            </span>
+                          </div>
+                          <p className="text-xs text-neutral-400 font-mono mt-1">
+                            Roll No: <strong className="text-white">{profile.studentId}</strong>
+                            {profile.registrationNumber ? (
+                              <> &bull; Reg No: <strong className="text-white">{profile.registrationNumber}</strong></>
+                            ) : null}
+                            {' '}&bull; Batch: <strong className="text-white">{profile.batch}</strong>
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Top Metric Cards */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 self-stretch md:self-auto">
+                        <div className="p-3 bg-neutral-900/90 border border-neutral-800 rounded-2xl text-center">
+                          <span className="text-[10px] text-neutral-400 block font-medium">Cumulative CGPA</span>
+                          <span className="text-2xl font-black text-white font-mono mt-0.5 block">
+                            {profile.cgpa.toFixed(2)}
+                          </span>
+                        </div>
+
+                        <div className="p-3 bg-neutral-900/90 border border-neutral-800 rounded-2xl text-center">
+                          <span className="text-[10px] text-neutral-400 block font-medium">Percentage</span>
+                          <span className="text-2xl font-black text-zinc-300 font-mono mt-0.5 block">
+                            {typeof profile.percentage === 'number'
+                              ? `${profile.percentage.toFixed(1)}%`
+                              : profile.cgpa > 0
+                              ? `${(profile.cgpa * 9.5).toFixed(1)}%`
+                              : '—'}
+                          </span>
+                        </div>
+
+                        <div className="p-3 bg-neutral-900/90 border border-neutral-800 rounded-2xl text-center">
+                          <span className="text-[10px] text-neutral-400 block font-medium">Total Credits</span>
+                          <span className="text-2xl font-black text-white font-mono mt-0.5 block">
+                            {profile.semesters && profile.semesters.length > 0
+                              ? profile.semesters.reduce((acc, s) => acc + (s.credits || 0), 0)
+                              : '—'}
+                          </span>
+                        </div>
+
+                        <div className="p-3 bg-neutral-900/90 border border-neutral-800 rounded-2xl text-center">
+                          <span className="text-[10px] text-neutral-400 block font-medium">Active Backlogs</span>
+                          <span
+                            className={`text-2xl font-black font-mono mt-0.5 block ${
+                              profile.activeBacklogs === 0 ? 'text-white' : 'text-red-400'
+                            }`}
+                          >
+                            {profile.activeBacklogs}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Detailed Data Fields Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+                      <div className="p-3.5 bg-neutral-900/60 border border-neutral-800 rounded-2xl">
+                        <span className="text-[11px] text-neutral-500 block">Registration No</span>
+                        <span className="font-mono font-semibold text-white mt-1 block truncate">
+                          {profile.registrationNumber || '—'}
+                        </span>
+                      </div>
+
+                      <div className="p-3.5 bg-neutral-900/60 border border-neutral-800 rounded-2xl">
+                        <span className="text-[11px] text-neutral-500 block">Official Email</span>
+                        <span className="font-mono font-semibold text-white mt-1 block truncate">
+                          {profile.email || '—'}
+                        </span>
+                      </div>
+
+                      <div className="p-3.5 bg-neutral-900/60 border border-neutral-800 rounded-2xl">
+                        <span className="text-[11px] text-neutral-500 block">Contact Phone</span>
+                        <span className="font-mono font-semibold text-white mt-1 block">
+                          {profile.phone || '—'}
+                        </span>
+                      </div>
+
+                      <div className="p-3.5 bg-neutral-900/60 border border-neutral-800 rounded-2xl">
+                        <span className="text-[11px] text-neutral-500 block">Date of Birth</span>
+                        <span className="font-semibold text-white mt-1 block">
+                          {profile.dob || '—'}
+                        </span>
+                      </div>
+
+                      <div className="p-3.5 bg-neutral-900/60 border border-neutral-800 rounded-2xl">
+                        <span className="text-[11px] text-neutral-500 block">Department</span>
+                        <span className="font-semibold text-white mt-1 block">
+                          {profile.branch}
+                        </span>
+                      </div>
+
+                      <div className="p-3.5 bg-neutral-900/60 border border-neutral-800 rounded-2xl">
+                        <span className="text-[11px] text-neutral-500 block">Passing Batch</span>
+                        <span className="font-semibold text-white mt-1 block">
+                          {profile.batch}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Marksheet Link Bar */}
+                    {profile.marksheetUrl && (
+                      <div className="p-4 bg-neutral-900/80 border border-neutral-800 rounded-2xl flex items-center justify-between">
+                        <div>
+                          <span className="text-white block font-bold text-xs">Official Academic Marksheet</span>
+                          <span className="text-neutral-400 text-[11px]">Drive link uploaded by department coordinator</span>
+                        </div>
+                        <a
+                          href={profile.marksheetUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold text-black bg-white hover:bg-neutral-200 transition"
+                        >
+                          <span>View Official Marksheet</span>
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                {/* ========================================================= */}
+                {/* 2. ACTIVE RECRUITMENT DRIVES SECTION                       */}
+                {/* ========================================================= */}
+                <section id="drives" className="gsap-student-card space-y-4">
+                  <div className="bg-[#101012] border border-neutral-800 rounded-3xl p-6 sm:p-8 space-y-6">
+                    <div className="flex items-center justify-between border-b border-neutral-800 pb-4">
+                      <div>
+                        <h3 className="text-base font-bold text-white flex items-center gap-2">
+                          <Briefcase className="h-4 w-4 text-white" />
+                          <span>Active Recruitment Drives</span>
+                        </h3>
+                        <p className="text-xs text-neutral-400 mt-0.5">
+                          Open placement opportunities with simulated real-time excel application sheets
+                        </p>
+                      </div>
+                      <span className="text-xs font-mono font-semibold px-3 py-1 bg-neutral-900 border border-neutral-700 text-neutral-300 rounded-full">
+                        {drives.length} Available
+                      </span>
+                    </div>
+
+                    {drives.length === 0 ? (
+                      <p className="text-xs text-neutral-400 text-center py-8">
+                        No recruitment drives are currently published for your department.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {drives.map((d) => (
+                          <div
+                            key={d.id}
+                            className="bg-neutral-900/70 border border-neutral-800 hover:border-neutral-700 rounded-2xl p-5 flex flex-col justify-between space-y-4 transition group"
+                          >
+                            <div className="space-y-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <h4 className="font-bold text-white text-base leading-tight">{d.company}</h4>
+                                  {d.role && <p className="text-xs text-neutral-400 mt-0.5">{d.role}</p>}
+                                </div>
+                                {d.packageCategory === 'DREAM' ? (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white text-black border border-white">
+                                    ★ Dream
+                                  </span>
+                                ) : d.packageCategory === 'INTERNSHIP' ? (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-neutral-800 text-neutral-300 border border-neutral-700">
+                                    ⏳ Internship
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-neutral-800 text-white border border-neutral-700">
+                                    💼 General
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="space-y-1.5 text-xs text-neutral-400 font-mono">
+                                {d.ctcLpa !== null && (
+                                  <div className="flex items-center justify-between">
+                                    <span>CTC Package:</span>
+                                    <strong className="text-white">{d.ctcLpa} LPA</strong>
+                                  </div>
+                                )}
+                                <div className="flex items-center justify-between">
+                                  <span>Cutoff CGPA:</span>
+                                  <span className="text-neutral-300">{d.minCgpa > 0 ? d.minCgpa : 'None'}</span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>Backlogs Allowed:</span>
+                                  <span className={d.allowBacklogs ? 'text-amber-300' : 'text-emerald-400'}>
+                                    {d.allowBacklogs ? 'Yes' : 'No'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                  <span>Deadline:</span>
+                                  <span className="text-neutral-300">{new Date(d.deadline).toLocaleDateString()}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="space-y-2 pt-1">
+                              <Link
+                                href={`/drives/${d.id}`}
+                                className="inline-flex items-center justify-center gap-2 w-full py-2 px-4 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 transition shadow-xs"
+                              >
+                                <span>Open Simulated Sheet</span>
+                                <ArrowRight className="h-3.5 w-3.5" />
+                              </Link>
+                              <Link
+                                href={`/drives/${d.id}/mock-oa`}
+                                className="inline-flex items-center justify-center gap-2 w-full py-2 px-4 rounded-xl text-xs font-semibold text-neutral-300 hover:text-white bg-neutral-900 hover:bg-neutral-800 border border-neutral-700/80 hover:border-neutral-500 transition"
+                              >
+                                <Code2 className="h-3.5 w-3.5 text-emerald-400" />
+                                <span>Practice Past Years OA</span>
+                              </Link>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                {/* ========================================================= */}
+                {/* 3. SEMESTER BREAKDOWN RESULTS TABLE                       */}
+                {/* ========================================================= */}
+                <section id="semesters" className="gsap-student-card space-y-4">
+                  <div className="bg-[#101012] border border-neutral-800 rounded-3xl p-6 sm:p-8 space-y-6">
+                    <div className="flex items-center justify-between border-b border-neutral-800 pb-4">
+                      <div>
+                        <h3 className="text-base font-bold text-white flex items-center gap-2">
+                          <Award className="h-4 w-4 text-white" />
+                          <span>Semester Results &amp; Credit Breakdown</span>
+                        </h3>
+                        <p className="text-xs text-neutral-400 mt-0.5">
+                          Verified semester-by-semester SGPA records and academic credit weighting
+                        </p>
+                      </div>
+                      <span className="text-xs text-neutral-400 font-mono">
+                        {profile.semesters?.length || 0} Semesters Recorded
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="border-b border-neutral-800 text-[11px] font-bold text-neutral-400 uppercase tracking-wider">
+                          <tr>
+                            <th className="py-3 px-4">Semester</th>
+                            <th className="py-3 px-4">Credits Earned</th>
+                            <th className="py-3 px-4">SGPA</th>
+                            <th className="py-3 px-4">Percentage</th>
+                            <th className="py-3 px-4">Credit Points</th>
+                            <th className="py-3 px-4 text-right">Marksheet</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-neutral-800/60 font-mono">
+                          {[1, 2, 3, 4, 5, 6, 7, 8].map((semNum) => {
+                            const reached = semNum <= (profile.currentSemester ?? 8);
+                            const s = profile.semesters?.find((item) => item.semester === semNum);
+
+                            if (!reached) {
+                              return (
+                                <tr key={semNum} className="opacity-60 bg-neutral-950/40">
+                                  <td className="py-3 px-4 font-bold text-neutral-400">
+                                    Semester {semNum}
+                                  </td>
+                                  <td className="py-3 px-4 text-neutral-600">—</td>
+                                  <td className="py-3 px-4 text-neutral-600">—</td>
+                                  <td className="py-3 px-4 text-neutral-600">—</td>
+                                  <td className="py-3 px-4 text-neutral-600">—</td>
+                                  <td className="py-3 px-4 text-right">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-neutral-900 text-neutral-400 border border-neutral-800">
+                                      ⏳ Yet to reach (Junior Batch)
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            if (s) {
+                              return (
+                                <tr key={semNum} className="hover:bg-neutral-900/50 transition">
+                                  <td className="py-3 px-4 font-bold text-white">
+                                    Semester {s.semester}
+                                  </td>
+                                  <td className="py-3 px-4 text-neutral-300">
+                                    {s.credits}
+                                  </td>
+                                  <td className="py-3 px-4 font-bold text-white">
+                                    {s.sgpa.toFixed(2)}
+                                  </td>
+                                  <td className="py-3 px-4 text-neutral-400">
+                                    {typeof s.percentage === 'number'
+                                      ? `${s.percentage.toFixed(1)}%`
+                                      : `${(s.sgpa * 9.5).toFixed(1)}%`}
+                                  </td>
+                                  <td className="py-3 px-4 text-neutral-400">
+                                    {(s.credits * s.sgpa).toFixed(2)}
+                                  </td>
+                                  <td className="py-3 px-4 text-right">
+                                    {s.marksheetUrl ? (
+                                      <a
+                                        href={s.marksheetUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-medium text-white bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition"
+                                      >
+                                        <span>Link</span>
+                                        <ExternalLink className="h-3 w-3" />
+                                      </a>
+                                    ) : (
+                                      <span className="text-neutral-600">—</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return (
+                              <tr key={semNum} className="hover:bg-neutral-900/30 transition text-neutral-500">
+                                <td className="py-3 px-4 font-bold text-neutral-300">
+                                  Semester {semNum}
+                                </td>
+                                <td className="py-3 px-4 text-neutral-600">—</td>
+                                <td className="py-3 px-4 text-neutral-600">—</td>
+                                <td className="py-3 px-4 text-neutral-600">—</td>
+                                <td className="py-3 px-4 text-neutral-600">—</td>
+                                <td className="py-3 px-4 text-right">
+                                  <span className="text-[10px] text-neutral-500 font-mono">Not Uploaded</span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </section>
+
+                {/* ========================================================= */}
+                {/* 4. APPLIED REQUESTS & CORRECTIONS HISTORY                 */}
+                {/* ========================================================= */}
+                <section id="requests" className="gsap-student-card space-y-4">
+                  <div className="bg-[#101012] border border-neutral-800 rounded-3xl p-6 sm:p-8 space-y-6">
+                    <div className="flex items-center justify-between border-b border-neutral-800 pb-4">
+                      <div>
+                        <h3 className="text-base font-bold text-white flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-white" />
+                          <span>Applied Requests &amp; Corrections Queue</span>
+                        </h3>
+                        <p className="text-xs text-neutral-400 mt-0.5">
+                          Real-time status tracking for drive submissions and data recorrections
+                        </p>
+                      </div>
+                      <span className="text-xs font-mono font-semibold px-3 py-1 bg-neutral-900 border border-neutral-700 text-neutral-300 rounded-full">
+                        {requests.length} Total
+                      </span>
+                    </div>
+
+                    {requests.length === 0 ? (
+                      <p className="text-xs text-neutral-400 text-center py-6">
+                        You have not submitted any drive applications or profile correction requests yet.
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {requests.map((r) => {
+                          const changes = r.requestedChanges as Record<string, unknown>;
+                          const isDrive = changes?.type === 'DRIVE_APPLICATION';
+
+                          return (
+                            <div
+                              key={r.id}
+                              className="p-4 rounded-2xl bg-neutral-900/70 border border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs transition"
+                            >
+                              <div className="space-y-1.5 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {isDrive ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white text-black">
+                                      <Briefcase className="h-3 w-3" /> Drive Application
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-neutral-800 border border-neutral-700 text-white">
+                                      <FileText className="h-3 w-3" /> Profile Correction
+                                    </span>
+                                  )}
+
+                                  {r.status === 'PENDING' && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-950/60 text-amber-300 border border-amber-800/60">
+                                      <Clock className="h-3 w-3" /> Under Review
+                                    </span>
+                                  )}
+                                  {r.status === 'APPROVED' && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">
+                                      <CheckCircle className="h-3 w-3" /> Verified &amp; Approved
+                                    </span>
+                                  )}
+                                  {r.status === 'REJECTED' && (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-950/60 text-red-300 border border-red-800/60">
+                                      <AlertTriangle className="h-3 w-3" /> Rejected
+                                    </span>
+                                  )}
+                                  <span className="text-neutral-500 font-mono text-[11px]">
+                                    {new Date(r.createdAt).toLocaleDateString()}
+                                  </span>
+                                </div>
+
+                                {isDrive ? (
+                                  <div className="pt-1">
+                                    <div className="font-bold text-white text-sm">
+                                      {String(changes.company || 'Company')} {changes.role ? `- ${String(changes.role)}` : ''}
+                                    </div>
+                                    <div className="text-xs text-neutral-400 mt-0.5">
+                                      Package: <strong className="text-white">{changes.ctcLpa ? `${changes.ctcLpa} LPA` : 'Standard'}</strong> &bull; Status: Candidate application submitted.
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-wrap gap-2 pt-1">
+                                    {Object.entries(changes).map(([k, v]) => (
+                                      <span
+                                        key={k}
+                                        className="px-2 py-0.5 bg-neutral-900 rounded border border-neutral-700 text-neutral-200 font-mono text-[11px]"
+                                      >
+                                        {k}: <strong className="text-white">{String(v)}</strong>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+
+                                <p className="text-neutral-400 mt-1">
+                                  <strong className="text-neutral-300">Reason:</strong> {r.reason}
+                                </p>
+
+                                {r.reviewerRemarks && (
+                                  <p className="text-neutral-300 bg-neutral-900/90 p-2 rounded-xl border border-neutral-700 mt-1">
+                                    <strong className="text-white">Coordinator Feedback:</strong> {r.reviewerRemarks}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </div>
+            ) : null}
+          </main>
+        </div>
+
+        {/* ========================================================= */}
+        {/* MODAL: FIRST-LOGIN PROFILE SETUP                          */}
+        {/* ========================================================= */}
+        {isSetupModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <div className="bg-[#101012] rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-neutral-800 text-white">
+              <div className="p-6 border-b border-neutral-800 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-neutral-900 border border-neutral-700 text-white rounded-xl">
+                    <Sparkles className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">
                       Complete Your Student Profile
                     </h3>
-                    <p className="text-xs text-gray-500">
-                      Roll Number: <span className="font-mono font-semibold text-gray-900">{profile?.studentId}</span>
+                    <p className="text-xs text-neutral-400">
+                      Roll Number: <span className="font-mono text-white font-semibold">{profile?.studentId}</span>
                     </p>
                   </div>
                 </div>
@@ -869,7 +984,7 @@ export default function StudentPage() {
                   <button
                     type="button"
                     onClick={() => setIsSetupModalOpen(false)}
-                    className="text-gray-400 hover:text-gray-600 p-1 rounded-md"
+                    className="text-neutral-400 hover:text-white p-1 rounded-md"
                   >
                     <X className="h-5 w-5" />
                   </button>
@@ -877,14 +992,12 @@ export default function StudentPage() {
               </div>
 
               <form onSubmit={handleSubmitSetup} className="p-6 space-y-4 text-xs">
-                <div className="bg-blue-50/80 border border-blue-200 p-3 rounded-lg text-blue-900 text-xs">
-                  <p className="font-medium">
-                    👋 <strong>First-Time Setup:</strong> Your placement coordinator initialized your account using your Roll Number. Please fill in your official details to complete your placement profile.
-                  </p>
+                <div className="bg-neutral-900 border border-neutral-800 p-3.5 rounded-xl text-neutral-300 text-xs">
+                  👋 <strong>First-Time Verification:</strong> Your coordinator imported your account using your Roll Number. Please confirm your contact details to begin applying for placement drives.
                 </div>
 
                 {setupError && (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 font-medium">
+                  <div className="p-3 bg-red-950/60 border border-red-800 rounded-xl text-red-300 font-medium">
                     {setupError}
                   </div>
                 )}
@@ -892,8 +1005,8 @@ export default function StudentPage() {
                 <div className="space-y-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block font-semibold text-gray-700 mb-1">
-                        Full Name <span className="text-red-500">*</span>
+                      <label className="block font-semibold text-neutral-300 mb-1">
+                        Full Name <span className="text-red-400">*</span>
                       </label>
                       <input
                         type="text"
@@ -901,28 +1014,28 @@ export default function StudentPage() {
                         value={setupName}
                         onChange={(e) => setSetupName(e.target.value)}
                         required
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                        className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                       />
                     </div>
 
                     <div>
-                      <label className="block font-semibold text-gray-700 mb-1">
-                        Registration Number (University Reg No)
+                      <label className="block font-semibold text-neutral-300 mb-1">
+                        Registration Number
                       </label>
                       <input
                         type="text"
                         placeholder="e.g. REG-2022-CSE-001"
                         value={setupRegistrationNumber}
                         onChange={(e) => setSetupRegistrationNumber(e.target.value)}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-xs font-mono focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                        className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 font-mono focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block font-semibold text-gray-700 mb-1">
-                        Department / Branch <span className="text-red-500">*</span>
+                      <label className="block font-semibold text-neutral-300 mb-1">
+                        Department / Branch <span className="text-red-400">*</span>
                       </label>
                       <input
                         type="text"
@@ -930,88 +1043,76 @@ export default function StudentPage() {
                         value={setupBranch}
                         onChange={(e) => setSetupBranch(e.target.value)}
                         required
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                        className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                       />
                     </div>
 
                     <div>
-                      <label className="block font-semibold text-gray-700 mb-1">
-                        Batch Year <span className="text-red-500">*</span>
+                      <label className="block font-semibold text-neutral-300 mb-1">
+                        Batch Year <span className="text-red-400">*</span>
                       </label>
                       <input
                         type="text"
-                        placeholder="e.g. 2026 or 2022-2026"
+                        placeholder="e.g. 2026"
                         value={setupBatch}
                         onChange={(e) => setSetupBatch(e.target.value)}
                         required
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                        className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block font-semibold text-gray-700 mb-1">
-                        Official Email <span className="text-red-500">*</span>
+                      <label className="block font-semibold text-neutral-300 mb-1">
+                        Official Email <span className="text-red-400">*</span>
                       </label>
                       <input
                         type="email"
-                        placeholder="e.g. rahul@college.edu"
+                        placeholder="e.g. student@college.edu"
                         value={setupEmail}
                         onChange={(e) => setSetupEmail(e.target.value)}
                         required
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                        className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                       />
                     </div>
 
                     <div>
-                      <label className="block font-semibold text-gray-700 mb-1">
-                        Contact Phone (10 Digits) <span className="text-red-500">*</span>
+                      <label className="block font-semibold text-neutral-300 mb-1">
+                        Phone (10 Digits) <span className="text-red-400">*</span>
                       </label>
                       <input
                         type="tel"
                         maxLength={10}
-                        placeholder="e.g. 9876543210"
+                        placeholder="9876543210"
                         value={setupPhone}
                         onChange={(e) => setSetupPhone(e.target.value.replace(/\D/g, ''))}
                         required
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-xs font-mono focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                        className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 font-mono focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-gray-700 mb-1">
-                      Date of Birth (DOB) <span className="text-gray-400 font-normal">(Optional)</span>
-                    </label>
-                    <input
-                      type="date"
-                      value={setupDob}
-                      onChange={(e) => setSetupDob(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-xs focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block font-semibold text-gray-700 mb-1">
-                      Consolidated Marksheet Drive Link <span className="text-gray-400 font-normal">(Optional)</span>
+                    <label className="block font-semibold text-neutral-300 mb-1">
+                      Consolidated Marksheet Drive Link
                     </label>
                     <input
                       type="url"
                       placeholder="https://drive.google.com/file/d/..."
                       value={setupMarksheetUrl}
                       onChange={(e) => setSetupMarksheetUrl(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-xs font-mono focus:ring-2 focus:ring-amber-500 focus:outline-hidden"
+                      className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white placeholder-neutral-500 font-mono focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                     />
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-gray-200 flex items-center justify-end gap-2">
+                <div className="pt-4 border-t border-neutral-800 flex items-center justify-end gap-2">
                   {profile?.isProfileComplete && (
                     <button
                       type="button"
                       onClick={() => setIsSetupModalOpen(false)}
-                      className="px-4 py-2 border border-gray-300 rounded-lg font-medium text-gray-700 bg-white hover:bg-gray-50 transition"
+                      className="px-4 py-2 border border-neutral-700 rounded-full font-semibold text-neutral-300 hover:text-white transition"
                     >
                       Cancel
                     </button>
@@ -1019,10 +1120,10 @@ export default function StudentPage() {
                   <button
                     type="submit"
                     disabled={isSubmittingSetup}
-                    className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:bg-gray-300 transition shadow-xs"
+                    className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-full font-bold text-black bg-white hover:bg-neutral-200 disabled:opacity-50 transition shadow-xs"
                   >
                     <Sparkles className="h-4 w-4" />
-                    {isSubmittingSetup ? 'Saving Profile...' : 'Save & Complete Profile'}
+                    <span>{isSubmittingSetup ? 'Saving Profile...' : 'Save & Verify Profile'}</span>
                   </button>
                 </div>
               </form>
@@ -1030,111 +1131,111 @@ export default function StudentPage() {
           </div>
         )}
 
-        {/* Modal: Request Data Correction */}
+        {/* ========================================================= */}
+        {/* MODAL: REQUEST DATA CORRECTION                            */}
+        {/* ========================================================= */}
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs">
-            <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full overflow-hidden border border-gray-200">
-              <div className="p-6 border-b border-gray-200 flex items-center justify-between bg-emerald-50/30">
-                <div className="flex items-center gap-2">
-                  <Edit3 className="h-5 w-5 text-emerald-600" />
-                  <h3 className="text-base font-bold text-gray-900">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <div className="bg-[#101012] rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-neutral-800 text-white">
+              <div className="p-6 border-b border-neutral-800 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <Edit3 className="h-5 w-5 text-white" />
+                  <h3 className="text-base font-bold text-white">
                     Request Academic Data Correction
                   </h3>
                 </div>
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="text-gray-400 hover:text-gray-600 p-1 rounded-md"
+                  className="text-neutral-400 hover:text-white p-1 rounded-md"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
 
               <form onSubmit={handleSubmitCorrection} className="p-6 space-y-4 text-xs">
-                <div className="bg-amber-50/70 border border-amber-200 p-3 rounded-lg text-amber-800">
-                  <p className="font-medium">
-                    📌 <strong>Coordinator Review Required:</strong> Any changes submitted here will first be reviewed by your Branch Coordinator before updating your official record.
-                  </p>
+                <div className="bg-neutral-900 border border-neutral-800 p-3 rounded-xl text-neutral-300">
+                  📌 <strong>Review Notice:</strong> Corrections will be routed to your Branch Coordinator for official verification before updating college records.
                 </div>
 
                 {modalError && (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-800 font-medium">
+                  <div className="p-3 bg-red-950/60 border border-red-800 rounded-xl text-red-300 font-medium">
                     {modalError}
                   </div>
                 )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-semibold text-gray-700 mb-1">
+                    <label className="block font-semibold text-neutral-300 mb-1">
                       Full Name
                     </label>
                     <input
                       type="text"
                       value={newName}
                       onChange={(e) => setNewName(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                      className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-gray-700 mb-1">
+                    <label className="block font-semibold text-neutral-300 mb-1">
                       Registration Number
                     </label>
                     <input
                       type="text"
                       value={newRegistrationNumber}
                       onChange={(e) => setNewRegistrationNumber(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                      className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-gray-700 mb-1">
+                    <label className="block font-semibold text-neutral-300 mb-1">
                       Official Email
                     </label>
                     <input
                       type="email"
                       value={newEmail}
                       onChange={(e) => setNewEmail(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                      className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-gray-700 mb-1">
+                    <label className="block font-semibold text-neutral-300 mb-1">
                       Contact Phone
                     </label>
                     <input
                       type="text"
                       value={newPhone}
                       onChange={(e) => setNewPhone(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                      className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                     />
                   </div>
 
-                  <div>
-                    <label className="block font-semibold text-gray-700 mb-1">
-                      Active Backlogs
+                  <div className="sm:col-span-2">
+                    <label className="block font-semibold text-neutral-300 mb-1">
+                      Active Backlogs Count
                     </label>
                     <input
                       type="number"
                       min={0}
                       value={newBacklogs}
                       onChange={(e) => setNewBacklogs(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                      className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                     />
                   </div>
                 </div>
 
                 {/* Semester SGPAs */}
                 <div>
-                  <label className="block font-semibold text-gray-700 mb-1">
+                  <label className="block font-semibold text-neutral-300 mb-1">
                     Semester SGPA Updates (Optional)
                   </label>
-                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                    {[1, 2, 3, 4, 5, 6].map((sem) => (
+                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((sem) => (
                       <div key={sem}>
-                        <span className="block text-[11px] text-gray-500 font-mono mb-0.5">
+                        <span className="block text-[11px] text-neutral-400 font-mono mb-0.5 text-center">
                           Sem {sem}
                         </span>
                         <input
@@ -1147,43 +1248,43 @@ export default function StudentPage() {
                           onChange={(e) =>
                             setSemesterSgpa((prev) => ({ ...prev, [sem]: e.target.value }))
                           }
-                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 bg-white text-center font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                          className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-2 py-1.5 text-center font-mono text-xs text-white focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                         />
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* Justification Reason */}
+                {/* Reason */}
                 <div>
-                  <label className="block font-semibold text-gray-700 mb-1">
-                    Reason for Correction Request <span className="text-red-500">*</span>
+                  <label className="block font-semibold text-neutral-300 mb-1">
+                    Reason for Correction Request <span className="text-red-400">*</span>
                   </label>
                   <textarea
                     rows={3}
-                    placeholder="Explain clearly why this correction is required (e.g. phone number updated, Sem 2 revaluation result revised SGPA)..."
+                    placeholder="Provide details explaining the change..."
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden text-xs"
+                    className="w-full bg-[#18181b] border border-neutral-700 rounded-xl p-2.5 text-xs text-white focus:outline-hidden focus:border-white focus:ring-1 focus:ring-white"
                     required
                   />
                 </div>
 
-                <div className="pt-3 border-t border-gray-200 flex items-center justify-end gap-2">
+                <div className="pt-3 border-t border-neutral-800 flex items-center justify-end gap-2">
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="px-4 py-2 border border-gray-300 rounded-lg font-medium text-gray-700 bg-white hover:bg-gray-50 transition"
+                    className="px-4 py-2 border border-neutral-700 rounded-full font-semibold text-neutral-300 hover:text-white transition"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={isSubmitting}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 transition shadow-2xs"
+                    className="inline-flex items-center gap-1.5 px-6 py-2.5 rounded-full font-bold text-black bg-white hover:bg-neutral-200 disabled:opacity-50 transition shadow-xs"
                   >
                     <Send className="h-3.5 w-3.5" />
-                    {isSubmitting ? 'Sending Request...' : 'Send Request to Coordinator'}
+                    <span>{isSubmitting ? 'Submitting...' : 'Send to Coordinator'}</span>
                   </button>
                 </div>
               </form>

@@ -53,10 +53,30 @@ async function seedDevData() {
     console.log('Main Coordinator "admin" already exists.');
   }
 
+  // 1b. Seed Batch 2028 Super Admin
+  const [existingAdmin2028] = await db.select().from(users).where(eq(users.username, 'admin_2028')).limit(1);
+  if (!existingAdmin2028) {
+    const admin2028Hash = await hashPassword('Admin2028Password!');
+    await db.insert(users).values({
+      id: crypto.randomUUID(),
+      username: 'admin_2028',
+      passwordHash: admin2028Hash,
+      role: 'MAIN_COORDINATOR',
+      branch: null,
+      createdAt: new Date(),
+    });
+    console.log('Created Batch 2028 Super Admin: admin_2028 / Admin2028Password!');
+  }
+
   // 2. Seed Department / Branch Coordinators for CSE, ECE, EEE, IT, CIVIL, MCA
+  const juniorCoordPassword = 'JuniorCoord2028!';
+  const juniorCoordHash = await hashPassword(juniorCoordPassword);
+
   for (const branch of ALL_BRANCHES) {
     const coordUsername = `${branch.toLowerCase()}_coord`;
     const deptUsername = `${branch.toLowerCase()}_dept`;
+    const juniorUsername = `${branch.toLowerCase()}_junior_2028`;
+    const juniorCoord2028 = `${branch.toLowerCase()}_coord_2028`;
 
     for (const uName of [coordUsername, deptUsername]) {
       const [existing] = await db.select().from(users).where(eq(users.username, uName)).limit(1);
@@ -70,6 +90,22 @@ async function seedDevData() {
           createdAt: new Date(),
         });
         console.log(`Created Department Login: ${uName} / ${defaultCoordPassword} (${branch})`);
+      }
+    }
+
+    // Seed Junior Coordinators for Batch 2028
+    for (const jName of [juniorUsername, juniorCoord2028]) {
+      const [existingJ] = await db.select().from(users).where(eq(users.username, jName)).limit(1);
+      if (!existingJ) {
+        await db.insert(users).values({
+          id: crypto.randomUUID(),
+          username: jName,
+          passwordHash: juniorCoordHash,
+          role: 'BRANCH_COORDINATOR',
+          branch,
+          createdAt: new Date(),
+        });
+        console.log(`Created Junior Coordinator (Batch 2028): ${jName} / ${juniorCoordPassword} (${branch})`);
       }
     }
   }

@@ -39,7 +39,7 @@ export const drives = sqliteTable(
       .$type<string[]>()
       .default([]),
     companyFormat: text('companyFormat', { mode: 'json' })
-      .$type<Array<{ companyHeader: string; sourceField: string }>>()
+      .$type<Array<{ companyHeader: string; sourceField: string; customValue?: string | null; customKey?: string | null }>>()
       .default([]),
     deadline: text('deadline').notNull(), // ISO UTC timestamp string
     eligibleBranches: text('eligibleBranches', { mode: 'json' })

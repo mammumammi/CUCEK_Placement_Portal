@@ -681,5 +681,109 @@ describe('Drives Module (/api/drives)', () => {
       expect(branchCount).toBe(1);
     });
   });
+
+  // =========================================================================
+  // COMPREHENSIVE STATISTICS EXCEL & REFERENCE TEMPLATE TESTS
+  // =========================================================================
+
+  describe('Comprehensive Statistics Excel & Reference Template (/api/drives/statistics)', () => {
+    it('1. template-status returns hasTemplate: false initially or after reset', async () => {
+      // First ensure clean state
+      await request(app)
+        .delete('/api/drives/statistics/template')
+        .set('Cookie', mainCookie);
+
+      const res = await request(app)
+        .get('/api/drives/statistics/template-status')
+        .set('Cookie', mainCookie);
+
+      expect(res.status).toBe(200);
+      expect(res.body.hasTemplate).toBe(false);
+    });
+
+    it('2. students and branch coordinators are forbidden from statistics management (403)', async () => {
+      const studentRes = await request(app)
+        .get('/api/drives/statistics/template-status')
+        .set('Cookie', eligibleStudentCookie);
+      expect(studentRes.status).toBe(403);
+
+      const branchRes = await request(app)
+        .get('/api/drives/statistics/export-excel')
+        .set('Cookie', branchCookie);
+      expect(branchRes.status).toBe(403);
+    });
+
+    it('3. super admin can upload a reference Excel template and retrieve status', async () => {
+      // Create a test workbook
+      const refWb = new ExcelJS.Workbook();
+      refWb.addWorksheet('Custom Executive Sheet');
+      refWb.addWorksheet('CSE Dossier');
+      const sampleBuffer = await refWb.xlsx.writeBuffer();
+
+      const uploadRes = await request(app)
+        .post('/api/drives/statistics/template')
+        .set('Cookie', mainCookie)
+        .attach('template', Buffer.from(sampleBuffer), 'College_Reference_Format.xlsx');
+
+      expect(uploadRes.status).toBe(201);
+      expect(uploadRes.body.success).toBe(true);
+      expect(uploadRes.body.filename).toBe('College_Reference_Format.xlsx');
+      expect(uploadRes.body.sheetNames).toContain('Custom Executive Sheet');
+      expect(uploadRes.body.sheetNames).toContain('CSE Dossier');
+
+      // Now template-status returns hasTemplate: true
+      const statusRes = await request(app)
+        .get('/api/drives/statistics/template-status')
+        .set('Cookie', mainCookie);
+
+      expect(statusRes.status).toBe(200);
+      expect(statusRes.body.hasTemplate).toBe(true);
+      expect(statusRes.body.filename).toBe('College_Reference_Format.xlsx');
+    });
+
+    it('4. super admin can generate and download multi-sheet placement & department statistics Excel', async () => {
+      const res = await request(app)
+        .get('/api/drives/statistics/export-excel')
+        .set('Cookie', mainCookie)
+        .responseType('blob');
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('spreadsheetml.sheet');
+      expect(res.headers['content-disposition']).toContain('attachment;');
+
+      // Verify workbook structure with ExcelJS
+      const exportedWb = new ExcelJS.Workbook();
+      await exportedWb.xlsx.load(res.body);
+
+      const sheetNames = exportedWb.worksheets.map((w) => w.name);
+      // Contains Main Sheet and department sheets
+      expect(sheetNames.length).toBeGreaterThanOrEqual(6);
+      expect(sheetNames.some((n) => n.includes('Statistics') || n.includes('Executive'))).toBe(true);
+      expect(sheetNames).toContain('CSE Statistics');
+      expect(sheetNames).toContain('ECE Statistics');
+    });
+
+    it('5. super admin can download the active reference template and clear it', async () => {
+      const dlRes = await request(app)
+        .get('/api/drives/statistics/download-template')
+        .set('Cookie', mainCookie)
+        .responseType('blob');
+
+      expect(dlRes.status).toBe(200);
+      expect(dlRes.headers['content-disposition']).toContain('College_Reference_Format.xlsx');
+
+      // Delete template
+      const delRes = await request(app)
+        .delete('/api/drives/statistics/template')
+        .set('Cookie', mainCookie);
+      expect(delRes.status).toBe(200);
+
+      // Verify reset
+      const checkRes = await request(app)
+        .get('/api/drives/statistics/template-status')
+        .set('Cookie', mainCookie);
+      expect(checkRes.body.hasTemplate).toBe(false);
+    });
+  });
 });
 

@@ -64,6 +64,20 @@
       "when": 1795078063948,
       "tag": "0008_dear_champions",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1795508000000,
+      "tag": "0009_student_profiles_s8_additional_details",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1795510000000,
+      "tag": "0010_create_mock_assessments",
+      "breakpoints": true
     }
   ]
 }

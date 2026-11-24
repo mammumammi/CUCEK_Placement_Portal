@@ -10,7 +10,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import {
   Building2,
   Calendar,
@@ -20,10 +20,11 @@ import {
   CheckCircle,
   FileText,
   ArrowLeft,
-  Users,
   Send,
   Download,
   Info,
+  Code2,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { RequireAuth } from '@/components/auth/require-auth';
@@ -45,14 +46,14 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
       : undefined;
 
   const [propDriveId, setPropDriveId] = useState<string | undefined>(() => {
-    if (params && typeof (params as any).then !== 'function' && 'driveId' in params) {
+    if (params && !('then' in params) && 'driveId' in params) {
       return (params as { driveId: string }).driveId;
     }
     return undefined;
   });
 
   useEffect(() => {
-    if (params && typeof (params as any).then === 'function') {
+    if (params && 'then' in params && typeof (params as Promise<{ driveId: string }>).then === 'function') {
       (params as Promise<{ driveId: string }>)
         .then((resolved) => {
           if (resolved?.driveId) {
@@ -65,7 +66,6 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
 
   const driveId = routeDriveId || propDriveId || '';
 
-  const router = useRouter();
   const { user } = useAuth();
 
   const [drive, setDrive] = useState<DriveItem | null>(null);
@@ -158,30 +158,30 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
 
   return (
     <RequireAuth roles={['STUDENT', 'BRANCH_COORDINATOR', 'MAIN_COORDINATOR']}>
-      <div className="min-h-screen bg-gray-50 flex flex-col">
+      <div className="min-h-screen bg-[#09090b] text-[#f4f4f5] font-sans antialiased selection:bg-[#101012] selection:text-black flex flex-col">
         {/* Top Navbar */}
-        <header className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-xs">
+        <header className="bg-[#0c0c0e]/90 backdrop-blur-xl border-b border-neutral-800 sticky top-0 z-30">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
               <Link
                 href={dashboardHref}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-300 hover:text-white bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 px-3 py-1.5 rounded-lg transition"
               >
                 <ArrowLeft className="h-4 w-4" />
                 Back to Dashboard
               </Link>
-              <div className="h-5 w-px bg-gray-300" />
+              <div className="h-5 w-px bg-neutral-700" />
               <div className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-indigo-600" />
-                <span className="font-bold text-gray-900 text-sm">
+                <Building2 className="h-5 w-5 text-white" />
+                <span className="font-bold text-white text-sm">
                   {drive ? `${drive.company} Recruitment Drive` : 'Recruitment Drive'}
                 </span>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <span className="text-xs text-gray-500">Signed in as</span>
-              <span className="text-xs font-mono font-semibold px-2 py-1 rounded-md bg-gray-100 text-gray-800">
+              <span className="text-xs text-neutral-400">Signed in as</span>
+              <span className="text-xs font-mono font-semibold px-2 py-1 rounded-md bg-gray-100 text-neutral-200">
                 {user?.username} ({user?.role})
               </span>
             </div>
@@ -193,7 +193,7 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
           {loading && (
             <div className="flex flex-col items-center justify-center py-20">
               <div className="h-10 w-10 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent mb-3" />
-              <p className="text-sm text-gray-500 font-medium">Loading placement drive details...</p>
+              <p className="text-sm text-neutral-400 font-medium">Loading placement drive details...</p>
             </div>
           )}
 
@@ -215,22 +215,22 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
           {!loading && !error && drive && (
             <>
               {/* Drive Details Header Card */}
-              <div className="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
-                <div className="p-6 border-b border-gray-200 bg-linear-to-r from-gray-50 to-white flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white overflow-hidden">
+                <div className="p-6 border-b border-neutral-800 bg-neutral-900/60 flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
                     <div className="flex items-center gap-2.5 mb-2">
-                      <span className="text-2xl font-black text-gray-900">{drive.company}</span>
+                      <span className="text-2xl font-black text-white">{drive.company}</span>
                       {getCategoryBadge(drive.packageCategory)}
                       {!drive.open && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 border border-gray-300">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-neutral-400 border border-neutral-700">
                           Closed
                         </span>
                       )}
                     </div>
-                    <div className="flex flex-wrap items-center gap-4 text-xs text-gray-600">
+                    <div className="flex flex-wrap items-center gap-4 text-xs text-neutral-400">
                       {drive.role && (
-                        <div className="flex items-center gap-1.5 font-medium text-gray-800">
-                          <Briefcase className="h-4 w-4 text-gray-500" />
+                        <div className="flex items-center gap-1.5 font-medium text-neutral-200">
+                          <Briefcase className="h-4 w-4 text-neutral-400" />
                           <span>{drive.role}</span>
                         </div>
                       )}
@@ -240,7 +240,7 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
                           <span>{drive.ctcLpa} LPA Package</span>
                         </div>
                       )}
-                      <div className="flex items-center gap-1.5 text-gray-500">
+                      <div className="flex items-center gap-1.5 text-neutral-400">
                         <Calendar className="h-4 w-4 text-gray-400" />
                         <span>Deadline: {new Date(drive.deadline).toLocaleString()}</span>
                       </div>
@@ -248,14 +248,22 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
                   </div>
 
                   <div className="flex items-center gap-3">
+                    <Link
+                      href={`/drives/${drive.id}/mock-oa`}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-neutral-700 hover:border-neutral-500 rounded-lg text-xs font-bold text-white bg-neutral-900 hover:bg-neutral-800 transition shadow-2xs"
+                    >
+                      <Code2 className="h-4 w-4 text-emerald-400" />
+                      Practice Mock OA
+                    </Link>
+
                     {drive.jdFileUrl && (
                       <a
                         href={`http://localhost:4000/api/drives/${drive.id}/jd`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-gray-300 rounded-lg text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 transition shadow-2xs"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-neutral-700 rounded-lg text-xs font-semibold text-neutral-300 bg-[#101012] hover:bg-neutral-900/60 transition shadow-2xs"
                       >
-                        <Download className="h-4 w-4 text-gray-500" />
+                        <Download className="h-4 w-4 text-neutral-400" />
                         Download JD PDF
                       </a>
                     )}
@@ -263,13 +271,13 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
                     {user?.role === 'STUDENT' && drive.open && (
                       <div>
                         {drive.userApplied ? (
-                          <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold">
+                          <span className="inline-flex items-center gap-1.5 px-4 py-2 bg-neutral-900 text-white border border-neutral-700 rounded-lg text-xs font-bold">
                             <CheckCircle className="h-4 w-4 text-emerald-600" />
                             Applied
                           </span>
                         ) : drive.eligible === false ? (
                           <div className="text-right">
-                            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-700 border border-red-200">
+                            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-950/40 text-red-300 border border-red-800/60">
                               <AlertTriangle className="h-3.5 w-3.5" />
                               Not Eligible
                             </span>
@@ -279,7 +287,7 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
                             type="button"
                             onClick={handleApply}
                             disabled={applyLoading}
-                            className="inline-flex items-center gap-1.5 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg text-xs font-bold transition shadow-xs"
+                            className="inline-flex items-center gap-1.5 px-5 py-2 bg-white hover:bg-neutral-200 disabled:opacity-50 text-black font-bold rounded-lg text-xs font-bold transition shadow-xs"
                           >
                             <Send className="h-3.5 w-3.5" />
                             {applyLoading ? 'Submitting Application...' : 'Apply Now'}
@@ -291,25 +299,25 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
                 </div>
 
                 {/* Eligibility Criteria & Details Ribbon */}
-                <div className="p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 bg-white text-xs border-b border-gray-100">
-                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <span className="text-gray-500 block font-medium">Eligible Departments</span>
-                    <span className="text-gray-900 font-bold mt-1 block">
+                <div className="p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 bg-[#101012] text-xs border-b border-neutral-800/80">
+                  <div className="p-3 bg-neutral-900/60 rounded-lg border border-neutral-800">
+                    <span className="text-neutral-400 block font-medium">Eligible Departments</span>
+                    <span className="text-white font-bold mt-1 block">
                       {drive.eligibleBranches && drive.eligibleBranches.length > 0
                         ? drive.eligibleBranches.join(', ')
                         : 'All Branches'}
                     </span>
                   </div>
 
-                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <span className="text-gray-500 block font-medium">Minimum Cutoff CGPA</span>
+                  <div className="p-3 bg-neutral-900/60 rounded-lg border border-neutral-800">
+                    <span className="text-neutral-400 block font-medium">Minimum Cutoff CGPA</span>
                     <span className="text-indigo-700 font-bold mt-1 block">
                       {drive.minCgpa > 0 ? `${drive.minCgpa} CGPA` : 'No Cutoff (0.0)'}
                     </span>
                   </div>
 
-                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <span className="text-gray-500 block font-medium">Backlog / Supply Policy</span>
+                  <div className="p-3 bg-neutral-900/60 rounded-lg border border-neutral-800">
+                    <span className="text-neutral-400 block font-medium">Backlog / Supply Policy</span>
                     <span
                       className={`font-bold mt-1 block ${
                         drive.allowBacklogs ? 'text-amber-700' : 'text-emerald-700'
@@ -321,18 +329,18 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
                     </span>
                   </div>
 
-                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <span className="text-gray-500 block font-medium">Selection Rounds</span>
-                    <span className="text-gray-900 font-bold mt-1 block">
+                  <div className="p-3 bg-neutral-900/60 rounded-lg border border-neutral-800">
+                    <span className="text-neutral-400 block font-medium">Selection Rounds</span>
+                    <span className="text-white font-bold mt-1 block">
                       {drive.totalRounds} {drive.totalRounds === 1 ? 'Round' : 'Rounds'}
                     </span>
                   </div>
                 </div>
 
                 {drive.description && (
-                  <div className="p-6 bg-white text-xs text-gray-700 border-b border-gray-100">
-                    <h4 className="font-bold text-gray-900 mb-1">Job Summary & Description:</h4>
-                    <p className="whitespace-pre-line leading-relaxed text-gray-600">
+                  <div className="p-6 bg-[#101012] text-xs text-neutral-300 border-b border-neutral-800/80">
+                    <h4 className="font-bold text-white mb-1">Job Summary & Description:</h4>
+                    <p className="whitespace-pre-line leading-relaxed text-neutral-400">
                       {drive.description}
                     </p>
                   </div>
@@ -368,15 +376,41 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
                 )}
               </div>
 
+              {/* Big Data Analytics Mock OA Banner */}
+              <div className="p-6 bg-gradient-to-r from-neutral-900/90 via-[#101012] to-[#141416] border border-neutral-800 rounded-3xl flex flex-col md:flex-row md:items-center justify-between gap-5 shadow-sm">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold tracking-wider uppercase px-2.5 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/80">
+                      <Sparkles className="h-3 w-3" />
+                      Big Data Web Analytics
+                    </span>
+                    <span className="text-xs text-neutral-400 font-mono">2022–2025 Archive Synthesis</span>
+                  </div>
+                  <h3 className="text-base font-bold text-white">
+                    Simulated Online Assessment (OA) Coding Round
+                  </h3>
+                  <p className="text-xs text-neutral-400 max-w-xl leading-relaxed">
+                    Practice questions synthesized from real previous years coding tests asked by {drive.company} across LeetCode Discuss, GeeksforGeeks, and campus interview archives, with authentic time limits and sandboxed test execution.
+                  </p>
+                </div>
+                <Link
+                  href={`/drives/${drive.id}/mock-oa`}
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-white hover:bg-neutral-200 text-black font-bold text-xs rounded-xl transition shrink-0 shadow-sm"
+                >
+                  <Code2 className="h-4 w-4" />
+                  <span>Launch {drive.company} Mock OA</span>
+                </Link>
+              </div>
+
               {/* Interactive Drive Spreadsheet Section */}
-              <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-200 pb-4">
+              <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white p-6 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-800 pb-4">
                   <div>
-                    <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                      <FileText className="h-5 w-5 text-indigo-600" />
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-white" />
                       Drive Application Spreadsheet & Candidate Responses
                     </h3>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="text-xs text-neutral-400 mt-0.5">
                       {user?.role === 'STUDENT'
                         ? 'Verify your details and fill any required questionnaire fields for this drive.'
                         : 'Review applicants, verify profile credentials, and update round status.'}

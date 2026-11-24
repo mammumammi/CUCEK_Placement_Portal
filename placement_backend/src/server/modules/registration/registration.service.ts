@@ -354,7 +354,7 @@ export async function validateRegistrationSheet(
     const branchCreditMap = await getBranchMap(rowBranch);
 
     const semesters: { credits: number; sgpa: number }[] = [];
-    for (let sem = 1; sem <= 6; sem++) {
+    for (let sem = 1; sem <= 8; sem++) {
       const sgpa = Number(raw.data[`s${sem}Sgpa`]);
       let credits = Number(raw.data[`s${sem}Credits`]);
       if (!isNaN(sgpa)) {
@@ -515,6 +515,35 @@ export async function commitRegistration(
         createdAt: new Date(),
       }).run();
 
+      // Collect extra details for additionalDetails JSON
+      const additionalDetails: Record<string, unknown> = {};
+      const knownProfileFields = new Set([
+        'studentId', 'registrationNumber', 'name', 'firstName', 'lastName',
+        'dob', 'age', 'branch', 'batch', 'email', 'phone', 'activeBacklogs',
+        'totalMarks', 'maxMarks', 'percentage', 'marksheetUrl',
+        's1MarksheetUrl', 's2MarksheetUrl', 's3MarksheetUrl', 's4MarksheetUrl',
+        's5MarksheetUrl', 's6MarksheetUrl', 's7MarksheetUrl', 's8MarksheetUrl',
+        'currentSemester',
+        's1Sgpa', 's1Credits', 's2Sgpa', 's2Credits',
+        's3Sgpa', 's3Credits', 's4Sgpa', 's4Credits',
+        's5Sgpa', 's5Credits', 's6Sgpa', 's6Credits',
+        's7Sgpa', 's7Credits', 's8Sgpa', 's8Credits',
+      ]);
+      for (const [k, v] of Object.entries(data)) {
+        if (!knownProfileFields.has(k) && v !== undefined && v !== null && v !== '') {
+          additionalDetails[k] = v;
+        }
+      }
+      if (data.fatherName) additionalDetails.fatherName = data.fatherName;
+      if (data.motherName) additionalDetails.motherName = data.motherName;
+      if (data.tenthPercentage !== undefined && data.tenthPercentage !== null) additionalDetails.tenthPercentage = data.tenthPercentage;
+      if (data.twelfthPercentage !== undefined && data.twelfthPercentage !== null) additionalDetails.twelfthPercentage = data.twelfthPercentage;
+      if (data.panNumber) additionalDetails.panNumber = data.panNumber;
+      if (data.aadhaarNumber) additionalDetails.aadhaarNumber = data.aadhaarNumber;
+      if (data.githubUrl) additionalDetails.githubUrl = data.githubUrl;
+      if (data.linkedInUrl) additionalDetails.linkedInUrl = data.linkedInUrl;
+      if (data.address) additionalDetails.address = data.address;
+
       // 2. Insert student profile
       tx.insert(studentProfiles).values({
         userId,
@@ -541,12 +570,16 @@ export async function commitRegistration(
         s4MarksheetUrl: data.s4MarksheetUrl || null,
         s5MarksheetUrl: data.s5MarksheetUrl || null,
         s6MarksheetUrl: data.s6MarksheetUrl || null,
+        s7MarksheetUrl: data.s7MarksheetUrl || null,
+        s8MarksheetUrl: data.s8MarksheetUrl || null,
+        currentSemester: typeof data.currentSemester === 'number' ? data.currentSemester : 8,
+        additionalDetails,
         isProfileComplete: isComplete,
         createdAt: new Date(),
       }).run();
 
       // 3. Insert semester results using provided credits or branch curriculum defaults
-      for (let sem = 1; sem <= 6; sem++) {
+      for (let sem = 1; sem <= 8; sem++) {
         const sgpa = data[`s${sem}Sgpa` as keyof StudentRowData];
         const credits = data[`s${sem}Credits` as keyof StudentRowData];
         const marksheetUrl = data[`s${sem}MarksheetUrl` as keyof StudentRowData] as string | undefined;

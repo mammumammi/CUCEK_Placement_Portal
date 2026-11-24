@@ -10,10 +10,11 @@
  * @module app/coordinator/page
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import ExcelJS from 'exceljs';
+import gsap from 'gsap';
 import {
   Upload,
   FileSpreadsheet,
@@ -48,6 +49,7 @@ import {
   XCircle,
   Building2,
   Bell,
+  PieChart as PieChartIcon,
 } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { RequireAuth } from '@/components/auth/require-auth';
@@ -64,6 +66,7 @@ import {
   listCorrectionRequests,
   reviewCorrectionRequest,
   getDepartmentStats,
+  updateBatchCurrentSemester,
   type StudentProfileData,
   type CorrectionRequestData,
   type DepartmentStats,
@@ -71,14 +74,17 @@ import {
 import {
   listDrives,
   updateDriveExtraFields,
+  getPublicPlacementStats,
   type DriveItem,
   type DriveExtraField,
+  type PublicPlacementStats,
 } from '@/services/drives.service';
 import {
   getBranchCredits,
   updateBranchCredits,
   type BranchCreditItem,
 } from '@/services/curriculum.service';
+import { DepartmentPlacementPieChart } from '@/components/analytics/DepartmentPlacementPieChart';
 
 const CANONICAL_FIELD_OPTIONS = [
   { key: 'studentId', label: 'Student ID / Roll No', required: true },
@@ -121,11 +127,13 @@ export default function CoordinatorPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'upload' | 'requests' | 'students' | 'credits' | 'drives'>('students');
+  const [activeTab, setActiveTab] = useState<'upload' | 'requests' | 'students' | 'credits' | 'drives' | 'analytics'>('students');
 
   // Department Placement Metrics States
   const [departmentStats, setDepartmentStats] = useState<DepartmentStats | null>(null);
   const [isLoadingDeptStats, setIsLoadingDeptStats] = useState<boolean>(false);
+  const [publicStats, setPublicStats] = useState<PublicPlacementStats | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Drives & Application Sheets States
   const [drivesList, setDrivesList] = useState<DriveItem[]>([]);
@@ -176,10 +184,49 @@ export default function CoordinatorPage() {
   const [recalculateOnSave, setRecalculateOnSave] = useState<boolean>(true);
   const [creditsMsg, setCreditsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Batch Semester Configuration States (Junior Batches reached semester)
+  const [batchSemesterBatch, setBatchSemesterBatch] = useState<string>('2028');
+  const [batchSemesterBranch, setBatchSemesterBranch] = useState<string>('');
+  const [batchSemesterReached, setBatchSemesterReached] = useState<number>(2);
+  const [isSavingBatchSemester, setIsSavingBatchSemester] = useState<boolean>(false);
+  const [batchSemesterMsg, setBatchSemesterMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleSaveBatchSemester = async () => {
+    setIsSavingBatchSemester(true);
+    setBatchSemesterMsg(null);
+    try {
+      const res = await updateBatchCurrentSemester({
+        branch: user?.role === 'MAIN_COORDINATOR' ? (batchSemesterBranch || undefined) : (user?.branch || undefined),
+        batch: batchSemesterBatch === 'ALL' ? undefined : batchSemesterBatch,
+        currentSemester: batchSemesterReached,
+      });
+      setBatchSemesterMsg({
+        type: 'success',
+        text: res.message || `Successfully set reached semester to S${batchSemesterReached}.`,
+      });
+      await fetchStudents();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update reached semester';
+      setBatchSemesterMsg({ type: 'error', text: msg });
+    } finally {
+      setIsSavingBatchSemester(false);
+    }
+  };
+
   const handleLogout = async () => {
     await logout();
     router.push('/login');
   };
+
+  // Fetch campus-wide public placement stats for pie chart
+  const fetchPublicStats = useCallback(async () => {
+    try {
+      const data = await getPublicPlacementStats();
+      setPublicStats(data);
+    } catch {
+      // Ignore initial fetch error
+    }
+  }, []);
 
   // Fetch department placement stats
   const fetchDeptStats = useCallback(async () => {
@@ -428,16 +475,20 @@ export default function CoordinatorPage() {
       void fetchCredits();
     } else if (activeTab === 'drives') {
       void fetchDrives();
+    } else if (activeTab === 'analytics') {
+      void fetchPublicStats();
+      void fetchDeptStats();
     }
-  }, [activeTab, fetchRequests, fetchStudents, fetchCredits, fetchDrives, fetchDeptStats]);
+  }, [activeTab, fetchRequests, fetchStudents, fetchCredits, fetchDrives, fetchDeptStats, fetchPublicStats]);
 
-  // Initial fetch for department stats, drives, students, and pending count badge
+  // Initial fetch for department stats, drives, students, public stats, and pending count badge
   useEffect(() => {
     void fetchDeptStats();
     void fetchRequests();
     void fetchDrives();
     void fetchStudents();
-  }, [fetchDeptStats, fetchRequests, fetchDrives, fetchStudents]);
+    void fetchPublicStats();
+  }, [fetchDeptStats, fetchRequests, fetchDrives, fetchStudents, fetchPublicStats]);
 
   // --- Roster Upload Handlers ---
   const runAnalysis = async (file: File) => {
@@ -730,21 +781,119 @@ export default function CoordinatorPage() {
 
   return (
     <RequireAuth roles={['BRANCH_COORDINATOR']}>
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        {/* Top Navbar */}
-        <header className="bg-white border-b border-gray-200 sticky top-0 z-10 shadow-xs">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
+      <div
+        ref={containerRef}
+        className="min-h-screen bg-[#09090b] text-[#f4f4f5] font-sans antialiased selection:bg-white selection:text-black flex"
+      >
+        {/* ========================================================= */}
+        {/* LEFT SIDEBAR NAVIGATION (Modern 2026 Layout)               */}
+        {/* ========================================================= */}
+        <aside className="w-64 border-r border-neutral-800/80 bg-[#0c0c0e] flex-col justify-between p-6 shrink-0 hidden lg:flex sticky top-0 h-screen z-40">
+          <div className="space-y-8">
+            {/* Identity & Department Badge */}
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-50 rounded-lg text-blue-600">
-                <Building className="h-6 w-6" />
+              <div className="relative">
+                <div className="w-10 h-10 rounded-xl bg-neutral-900 border border-neutral-700 flex items-center justify-center text-white font-mono font-bold text-sm shadow-inner">
+                  {user?.branch || 'FAC'}
+                </div>
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 rounded-full ring-2 ring-[#0c0c0e] animate-pulse" />
               </div>
-              <div>
-                <h1 className="text-lg font-bold text-gray-900 leading-tight">
-                  Placement Portal
-                </h1>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
-                  Branch Coordinator ({user?.branch || 'General'})
-                </span>
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-white tracking-tight truncate leading-none">
+                  {user?.branch || 'Department'} Portal
+                </h2>
+                <p className="text-[11px] text-neutral-400 font-medium mt-1 truncate">
+                  Faculty &bull; Coordinator
+                </p>
+              </div>
+            </div>
+
+            {/* Nav tabs */}
+            <nav className="space-y-1.5">
+              {[
+                { id: 'students', label: 'Class Students', icon: Users, badge: students.length },
+                { id: 'analytics', label: 'Pie Chart Analytics', icon: PieChartIcon },
+                { id: 'drives', label: 'Recruitment Drives & Application Sheets', icon: Briefcase, badge: drivesList.length },
+                { id: 'requests', label: 'Corrections & Applied Requests', icon: FileCheck2, badge: pendingRequestsCount },
+                { id: 'upload', label: 'Upload Class Roster', icon: Upload },
+                { id: 'credits', label: 'Curriculum Credits', icon: Award },
+              ].map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveTab(item.id as any)}
+                    className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition text-left ${
+                      isActive
+                        ? 'bg-neutral-800/90 text-white shadow-xs border border-neutral-700/60'
+                        : 'text-neutral-400 hover:text-white hover:bg-neutral-900/60'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-neutral-400'}`} />
+                      <span>{item.label}</span>
+                    </div>
+                    {item.badge !== undefined && item.badge > 0 && (
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-mono ${
+                          item.id === 'requests' && pendingRequestsCount > 0
+                            ? 'bg-amber-400 text-black font-bold'
+                            : 'bg-neutral-800 text-neutral-300'
+                        }`}
+                      >
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+
+          {/* Bottom */}
+          <div className="space-y-4 pt-6 border-t border-neutral-800/80">
+            <div className="p-3 bg-neutral-900/80 border border-neutral-800 rounded-xl space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span className="text-[11px] font-bold text-white">Department Faculty Active</span>
+              </div>
+              <p className="text-[10px] text-neutral-400">
+                Stream: <strong className="text-white">{user?.branch || 'CSE'}</strong> &bull; Batch 2026
+              </p>
+            </div>
+
+            <div className="space-y-1 text-xs font-medium text-neutral-400">
+              <Link
+                href="/"
+                className="flex items-center justify-between py-1 hover:text-white transition group"
+              >
+                <span>Public Placement Home</span>
+                <span className="text-[10px] text-neutral-500 group-hover:text-white">↗</span>
+              </Link>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full flex items-center justify-between py-1 text-red-400 hover:text-red-300 transition text-left"
+              >
+                <span>Sign Out</span>
+                <LogOut className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        {/* ========================================================= */}
+        {/* MAIN BODY AREA                                            */}
+        {/* ========================================================= */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Top Header Navbar */}
+          <header className="h-16 border-b border-neutral-800/80 bg-[#09090b]/80 backdrop-blur-xl sticky top-0 z-30 px-4 sm:px-8 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neutral-900 border border-neutral-700 text-xs font-medium text-neutral-300">
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                <span>{user?.branch || 'Department'} Faculty Portal &bull; Coordinator</span>
               </div>
             </div>
 
@@ -752,14 +901,14 @@ export default function CoordinatorPage() {
               <button
                 type="button"
                 onClick={() => setActiveTab('requests')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition border ${
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition border ${
                   pendingRequestsCount > 0
-                    ? 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100 ring-2 ring-amber-300/40 animate-pulse'
-                    : 'bg-gray-100 border-gray-200 text-gray-600 hover:bg-gray-200'
+                    ? 'bg-amber-400 text-black font-bold border-amber-300 shadow-xs'
+                    : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
                 }`}
-                title="View pending drive applications & profile correction requests"
+                title="Pending Requests"
               >
-                <Bell className="h-3.5 w-3.5 text-amber-600" />
+                <Bell className="h-3.5 w-3.5" />
                 <span>
                   {pendingRequestsCount > 0
                     ? `${pendingRequestsCount} Pending Request${pendingRequestsCount === 1 ? '' : 's'}`
@@ -767,161 +916,120 @@ export default function CoordinatorPage() {
                 </span>
               </button>
 
-              <div className="flex items-center gap-2 text-sm text-gray-700">
-                <User className="h-4 w-4 text-gray-400" />
-                <span className="font-medium">{user?.username}</span>
-              </div>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition"
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#18181b] text-white text-black hover:bg-neutral-200 text-xs font-bold transition shadow-xs"
               >
-                <LogOut className="h-3.5 w-3.5 text-gray-500" />
-                Sign Out
+                <LogOut className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Sign Out</span>
               </button>
             </div>
-          </div>
-        </header>
+          </header>
 
-        {/* Department Placement Overview Banner */}
-        <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white border-b border-indigo-950 shadow-inner">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
-              <div>
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-500/30 text-blue-200 border border-blue-400/30 uppercase tracking-wider">
-                    Department Faculty Portal
-                  </span>
-                  <span className="text-xs text-blue-200/80 font-medium">Live Placement &amp; Academic Status</span>
+          {/* Department Placement Overview Banner */}
+          <div className="p-4 sm:p-8 lg:p-10 max-w-7xl w-full mx-auto space-y-8 flex-1">
+            <div className="bg-[#101012] border border-neutral-800 rounded-3xl p-6 sm:p-8 space-y-6">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-neutral-800">
+                <div>
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neutral-900 border border-neutral-700 text-xs text-neutral-300 font-medium mb-3">
+                    <Building2 className="h-3.5 w-3.5 text-white" />
+                    <span>{user?.branch || 'Department'} Faculty Workspace</span>
+                  </div>
+                  <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                    {user?.branch || 'Department'} Department Dashboard
+                  </h2>
+                  <p className="text-xs text-neutral-400 mt-1 max-w-xl">
+                    Real-time placement records, student academic roster, ongoing spreadsheets, and interactive department placement analytics.
+                  </p>
                 </div>
-                <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2.5">
-                  <Building2 className="h-6 w-6 text-blue-400 shrink-0" />
-                  {user?.branch || 'Department'} Department Dashboard
-                </h2>
-                <p className="text-xs text-blue-200/90 mt-1 max-w-xl">
-                  Real-time placement records, student academic roster, and recruitment drives for {user?.branch || 'this branch'}.
-                </p>
+
+                {/* Quick Metrics Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 bg-neutral-900/90 border border-neutral-800 rounded-2xl text-center">
+                    <span className="text-[10px] text-neutral-400 block font-medium">Total Enrolled</span>
+                    <span className="text-2xl font-black text-white font-mono mt-0.5 block">
+                      {departmentStats?.totalStudents ?? students.length}
+                    </span>
+                    <span className="text-[10px] text-neutral-500">Registered Students</span>
+                  </div>
+
+                  <div className="p-3.5 bg-neutral-900/90 border border-neutral-800 rounded-2xl text-center">
+                    <span className="text-[10px] text-neutral-400 block font-medium">Total Placed</span>
+                    <span className="text-2xl font-black text-white font-mono mt-0.5 block">
+                      {departmentStats?.placedCount ?? 0}
+                    </span>
+                    <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                      {departmentStats?.placementRate ?? 0}% Placed
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 bg-neutral-900/90 border border-neutral-800 rounded-2xl text-center">
+                    <span className="text-[10px] text-neutral-400 block font-medium">Highest Package</span>
+                    <span className="text-xl font-black text-white font-mono mt-0.5 block">
+                      {departmentStats?.highestPackage ? `${departmentStats.highestPackage} LPA` : '—'}
+                    </span>
+                    <span className="text-[10px] text-neutral-500 font-mono">
+                      Avg: {departmentStats?.averagePackage ? `${departmentStats.averagePackage} LPA` : '—'}
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 bg-neutral-900/90 border border-neutral-800 rounded-2xl text-center">
+                    <span className="text-[10px] text-neutral-400 block font-medium">Active Drives</span>
+                    <span className="text-2xl font-black text-white font-mono mt-0.5 block">
+                      {departmentStats?.activeDrivesCount ?? drivesList.length}
+                    </span>
+                    <span className="text-[10px] text-neutral-500">Open Opportunities</span>
+                  </div>
+                </div>
               </div>
 
-              {/* Quick Metrics Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
-                  <div className="text-[11px] font-medium text-blue-200">Total Enrolled</div>
-                  <div className="text-2xl font-black text-white">{departmentStats?.totalStudents ?? students.length}</div>
-                  <div className="text-[10px] text-blue-300">Registered Students</div>
-                </div>
-
-                <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
-                  <div className="text-[11px] font-medium text-emerald-300">Total Placed</div>
-                  <div className="text-2xl font-black text-emerald-400">{departmentStats?.placedCount ?? 0}</div>
-                  <div className="text-[10px] text-emerald-200 font-bold">{departmentStats?.placementRate ?? 0}% Placed</div>
-                </div>
-
-                <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
-                  <div className="text-[11px] font-medium text-amber-300">Highest Package</div>
-                  <div className="text-xl font-black text-amber-300 font-mono">
-                    {departmentStats?.highestPackage ? `${departmentStats.highestPackage} LPA` : '—'}
-                  </div>
-                  <div className="text-[10px] text-amber-200 font-mono">
-                    Avg: {departmentStats?.averagePackage ? `${departmentStats.averagePackage} LPA` : '—'}
-                  </div>
-                </div>
-
-                <div className="bg-white/10 backdrop-blur-xs rounded-xl p-3 border border-white/15">
-                  <div className="text-[11px] font-medium text-purple-200">Active Drives</div>
-                  <div className="text-2xl font-black text-purple-300">{departmentStats?.activeDrivesCount ?? drivesList.length}</div>
-                  <div className="text-[10px] text-purple-200">Open Opportunities</div>
-                </div>
+              {/* Mobile Tab Quick Switcher */}
+              <div className="flex items-center gap-2 overflow-x-auto lg:hidden pt-2">
+                {[
+                  { id: 'students', label: 'Students' },
+                  { id: 'analytics', label: 'Pie Chart' },
+                  { id: 'drives', label: 'Drives' },
+                  { id: 'requests', label: 'Requests' },
+                  { id: 'upload', label: 'Upload' },
+                  { id: 'credits', label: 'Credits' },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setActiveTab(t.id as any)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition ${
+                      activeTab === t.id
+                        ? 'bg-white text-black'
+                        : 'bg-neutral-900 text-neutral-400 border border-neutral-800'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
               </div>
             </div>
-          </div>
-        </div>
 
-        {/* Tab Navigation Bar */}
-        <div className="bg-white border-b border-gray-200 sticky top-16 z-10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-6 sm:space-x-8 overflow-x-auto">
-            <button
-              type="button"
-              onClick={() => setActiveTab('students')}
-              className={`py-4 px-1 inline-flex items-center gap-2 border-b-2 font-medium text-sm whitespace-nowrap transition ${
-                activeTab === 'students'
-                  ? 'border-blue-600 text-blue-600 font-semibold'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <Users className="h-4 w-4" />
-              Class Students ({students.length})
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('drives')}
-              className={`py-4 px-1 inline-flex items-center gap-2 border-b-2 font-medium text-sm whitespace-nowrap transition ${
-                activeTab === 'drives'
-                  ? 'border-blue-600 text-blue-600 font-semibold'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <Briefcase className="h-4 w-4" />
-              Recruitment Drives &amp; Application Sheets ({drivesList.length})
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('upload')}
-              className={`py-4 px-1 inline-flex items-center gap-2 border-b-2 font-medium text-sm whitespace-nowrap transition ${
-                activeTab === 'upload'
-                  ? 'border-blue-600 text-blue-600 font-semibold'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <Upload className="h-4 w-4" />
-              Upload Class Roster
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('requests')}
-              className={`py-4 px-1 inline-flex items-center gap-2 border-b-2 font-medium text-sm whitespace-nowrap transition ${
-                activeTab === 'requests'
-                  ? 'border-blue-600 text-blue-600 font-semibold'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <FileCheck2 className="h-4 w-4" />
-              Corrections &amp; Applied Requests
-              {pendingRequestsCount > 0 && (
-                <span className="ml-1 px-2 py-0.5 text-xs font-bold rounded-full bg-amber-100 text-amber-800">
-                  {pendingRequestsCount} Pending
-                </span>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('credits')}
-              className={`py-4 px-1 inline-flex items-center gap-2 border-b-2 font-medium text-sm whitespace-nowrap transition ${
-                activeTab === 'credits'
-                  ? 'border-blue-600 text-blue-600 font-semibold'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <Award className="h-4 w-4" />
-              Curriculum Credits
-            </button>
-          </div>
-        </div>
-
-        {/* Main Content Area */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-1">
+            {/* TAB: DEPARTMENT PLACEMENT SHARE PIE CHART */}
+            {activeTab === 'analytics' && (
+              <div className="space-y-6">
+                <DepartmentPlacementPieChart
+                  branchBreakdown={publicStats?.branchBreakdown || []}
+                  totalStudents={departmentStats?.totalStudents ?? students.length}
+                  totalPlaced={departmentStats?.placedCount ?? 0}
+                  title={`${user?.branch || 'Department'} & Campus Placement Pie Chart`}
+                  subtitle="Portion sizes represent number of placements per department across CSE, ECE, EEE, IT, CIVIL, MCA"
+                />
+              </div>
+            )}
           {/* TAB 1: UPLOAD CLASS ROSTER */}
           {activeTab === 'upload' && (
             <div>
               <div className="mb-8">
-                <h2 className="text-2xl font-bold text-gray-900">
+                <h2 className="text-2xl font-bold text-white">
                   Upload {user?.branch} Class Roster
                 </h2>
-                <p className="mt-1 text-sm text-gray-500">
+                <p className="mt-1 text-sm text-neutral-400">
                   Upload an Excel (.xlsx) roster of your class students to automatically create their accounts.
                   Each student’s <strong>Registration Number / Student ID</strong> is set as their default password.
                 </p>
@@ -960,14 +1068,14 @@ export default function CoordinatorPage() {
               )}
 
               {/* Upload Card */}
-              <div className="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden mb-8">
-                <div className="p-6 border-b border-gray-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs overflow-hidden mb-8">
+                <div className="p-6 border-b border-neutral-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div>
-                    <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-                      <FileSpreadsheet className="h-5 w-5 text-blue-600" />
+                    <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                      <FileSpreadsheet className="h-5 w-5 text-white" />
                       Select Excel File (.xlsx) for {user?.branch}
                     </h3>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="text-xs text-neutral-400 mt-0.5">
                       Expected columns: studentId, name, branch ({user?.branch}), batch, email, phone, activeBacklogs, s1Sgpa...
                     </p>
                   </div>
@@ -975,16 +1083,16 @@ export default function CoordinatorPage() {
                   <button
                     type="button"
                     onClick={handleDownloadTemplate}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 border border-gray-300 rounded-md text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 transition shadow-2xs"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 border border-neutral-700 rounded-md text-xs font-semibold text-neutral-300 bg-[#18181b] text-white hover:bg-neutral-900/60 transition shadow-2xs"
                   >
-                    <Download className="h-4 w-4 text-blue-600" />
+                    <Download className="h-4 w-4 text-white" />
                     Download Sample Template
                   </button>
                 </div>
 
                 <div className="p-6">
                   <div className="flex flex-col sm:flex-row items-center gap-4">
-                    <label className="flex-1 w-full flex items-center justify-center px-6 py-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 transition cursor-pointer bg-gray-50/50">
+                    <label className="flex-1 w-full flex items-center justify-center px-6 py-4 border-2 border-dashed border-neutral-700 rounded-lg hover:border-blue-500 transition cursor-pointer bg-neutral-900/40">
                       <input
                         type="file"
                         accept=".xlsx"
@@ -993,7 +1101,7 @@ export default function CoordinatorPage() {
                       />
                       <div className="flex items-center gap-3">
                         <Upload className="h-5 w-5 text-gray-400" />
-                        <span className="text-sm font-medium text-gray-700">
+                        <span className="text-sm font-medium text-neutral-300">
                           {selectedFile ? selectedFile.name : 'Choose Excel file (.xlsx) or drag & drop'}
                         </span>
                       </div>
@@ -1019,14 +1127,14 @@ export default function CoordinatorPage() {
 
               {/* Analyzing Progress Banner */}
               {isAnalyzing && (
-                <div className="bg-white rounded-xl shadow-xs border border-blue-100 p-6 mb-8 text-center">
-                  <div className="inline-flex items-center justify-center p-3 bg-blue-50 rounded-full text-blue-600 mb-3 animate-bounce">
+                <div className="bg-[#18181b] text-white rounded-xl shadow-xs border border-blue-100 p-6 mb-8 text-center">
+                  <div className="inline-flex items-center justify-center p-3 bg-neutral-900 rounded-full text-white mb-3 animate-bounce">
                     <Sparkles className="h-6 w-6" />
                   </div>
-                  <h3 className="text-sm font-semibold text-gray-900">
+                  <h3 className="text-sm font-semibold text-white">
                     Analyzing Spreadsheet Structure & Mapping Columns...
                   </h3>
-                  <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+                  <p className="text-xs text-neutral-400 mt-1 max-w-md mx-auto">
                     Scanning worksheet rows, skipping title banners, and binding headers to student canonical fields.
                   </p>
                 </div>
@@ -1034,20 +1142,20 @@ export default function CoordinatorPage() {
 
               {/* Structure Analysis & Column Mapping Card */}
               {primarySheet && !isAnalyzing && (
-                <div className="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden mb-8">
-                  <div className="p-6 border-b border-gray-200 bg-linear-to-r from-blue-50/40 via-white to-white">
+                <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs overflow-hidden mb-8">
+                  <div className="p-6 border-b border-neutral-800 bg-neutral-900/60 border-b border-neutral-800">
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                       <div>
                         <div className="flex items-center gap-2">
-                          <Sparkles className="h-5 w-5 text-blue-600" />
-                          <h3 className="text-base font-semibold text-gray-900">
+                          <Sparkles className="h-5 w-5 text-white" />
+                          <h3 className="text-base font-semibold text-white">
                             Spreadsheet Structure & Column Mapping
                           </h3>
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-neutral-800 text-neutral-200">
                             {primarySheet.sheetName}
                           </span>
                         </div>
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-neutral-400 mt-1">
                           Header row detected at <strong>Row {primarySheet.headerRow}</strong>
                           {primarySheet.headerRow > 1 && ` (${primarySheet.headerRow - 1} title / banner rows skipped)`}
                           {' • '}
@@ -1060,9 +1168,9 @@ export default function CoordinatorPage() {
                           type="button"
                           onClick={() => selectedFile && runAnalysis(selectedFile)}
                           disabled={isAnalyzing || isPreviewing}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-neutral-700 rounded-md text-xs font-medium text-neutral-300 bg-[#18181b] text-white hover:bg-neutral-900/60 transition"
                         >
-                          <Settings className="h-3.5 w-3.5 text-gray-500" />
+                          <Settings className="h-3.5 w-3.5 text-neutral-400" />
                           Re-Analyze
                         </button>
                         <button
@@ -1086,8 +1194,8 @@ export default function CoordinatorPage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2.5 text-xs text-blue-800">
-                        <CheckCircle className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+                      <div className="mt-4 p-3 bg-neutral-900 border border-blue-200 rounded-lg flex items-start gap-2.5 text-xs text-neutral-200">
+                        <CheckCircle className="h-4 w-4 text-white shrink-0 mt-0.5" />
                         <div>
                           <span className="font-semibold">Flexible Registration: </span>
                           Missing fields (Name, Email, Phone, Batch, DOB) can be left unmapped—students will be prompted to fill them in automatically on their first login!
@@ -1097,9 +1205,9 @@ export default function CoordinatorPage() {
                   </div>
 
                   <div className="p-6">
-                    <div className="border border-gray-200 rounded-lg overflow-x-auto">
-                      <table className="min-w-full divide-y divide-gray-200 text-xs">
-                        <thead className="bg-gray-50 font-semibold text-gray-600">
+                    <div className="border border-neutral-800 rounded-lg overflow-x-auto">
+                      <table className="min-w-full divide-y divide-neutral-800 text-xs">
+                        <thead className="bg-neutral-900/60 font-semibold text-neutral-400">
                           <tr>
                             <th className="px-4 py-3 text-left">Uploaded Excel Header</th>
                             <th className="px-4 py-3 text-left">Mapped Canonical Field</th>
@@ -1107,21 +1215,21 @@ export default function CoordinatorPage() {
                             <th className="px-4 py-3 text-left">Confidence</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-200 bg-white">
+                        <tbody className="divide-y divide-neutral-800 bg-[#101012]">
                           {primarySheet.headers.map((header) => {
                             const match = primarySheet.mapping[header];
                             const currentMappedVal = columnMapping[header] || '';
 
                             return (
-                              <tr key={header} className="hover:bg-gray-50">
-                                <td className="px-4 py-3 font-semibold text-gray-900 font-mono">
+                              <tr key={header} className="hover:bg-neutral-900/60">
+                                <td className="px-4 py-3 font-semibold text-white font-mono">
                                   {header}
                                 </td>
                                 <td className="px-4 py-3">
                                   <select
                                     value={currentMappedVal}
                                     onChange={(e) => handleMappingChange(header, e.target.value)}
-                                    className="w-full max-w-xs border border-gray-300 rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-900 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                                    className="w-full max-w-xs border border-neutral-700 rounded-md px-2.5 py-1.5 text-xs font-medium text-white bg-[#18181b] text-white focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                                   >
                                     <option value="">-- Ignore Column --</option>
                                     <optgroup label="Required Canonical Fields">
@@ -1146,7 +1254,7 @@ export default function CoordinatorPage() {
                                       Exact Match
                                     </span>
                                   ) : match?.source === 'pattern' ? (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100 text-blue-800">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-neutral-800 text-neutral-200">
                                       Pattern Match
                                     </span>
                                   ) : match?.source === 'ai' ? (
@@ -1154,12 +1262,12 @@ export default function CoordinatorPage() {
                                       AI Suggested
                                     </span>
                                   ) : (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-neutral-400">
                                       Unmatched
                                     </span>
                                   )}
                                 </td>
-                                <td className="px-4 py-3 text-gray-500 font-mono">
+                                <td className="px-4 py-3 text-neutral-400 font-mono">
                                   {match ? `${Math.round(match.confidence * 100)}%` : '—'}
                                 </td>
                               </tr>
@@ -1174,14 +1282,14 @@ export default function CoordinatorPage() {
 
               {/* Preview Results Card */}
               {previewData && (
-                <div className="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden space-y-6 p-6">
+                <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs overflow-hidden space-y-6 p-6">
                   <div>
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-3">
                       <div>
-                        <h3 className="text-base font-semibold text-gray-900">
+                        <h3 className="text-base font-semibold text-white">
                           Validation Summary
                         </h3>
-                        <p className="text-xs text-gray-500 mt-0.5">
+                        <p className="text-xs text-neutral-400 mt-0.5">
                           Verified against branch scoping ({user?.branch}) and database uniqueness.
                         </p>
                       </div>
@@ -1189,17 +1297,17 @@ export default function CoordinatorPage() {
                       <button
                         type="button"
                         onClick={() => setPreviewData(null)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-neutral-700 rounded-md text-xs font-medium text-neutral-300 bg-[#18181b] text-white hover:bg-neutral-900/60 transition"
                       >
-                        <Settings className="h-3.5 w-3.5 text-gray-500" />
+                        <Settings className="h-3.5 w-3.5 text-neutral-400" />
                         Adjust Column Mapping
                       </button>
                     </div>
 
                     <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-                      <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                        <span className="text-xs text-gray-500 block">Total Rows</span>
-                        <span className="text-lg font-bold text-gray-900">{previewData.summary.total}</span>
+                      <div className="p-3 bg-neutral-900/60 rounded-lg border border-neutral-800">
+                        <span className="text-xs text-neutral-400 block">Total Rows</span>
+                        <span className="text-lg font-bold text-white">{previewData.summary.total}</span>
                       </div>
                       <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
                         <span className="text-xs text-emerald-600 block">Valid Rows</span>
@@ -1220,9 +1328,9 @@ export default function CoordinatorPage() {
                     </div>
                   </div>
 
-                  <div className="border border-gray-200 rounded-lg overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200 text-xs">
-                      <thead className="bg-gray-50 font-semibold text-gray-600">
+                  <div className="border border-neutral-800 rounded-lg overflow-x-auto">
+                    <table className="min-w-full divide-y divide-neutral-800 text-xs">
+                      <thead className="bg-neutral-900/60 font-semibold text-neutral-400">
                         <tr>
                           <th className="px-3 py-2 text-left">Row</th>
                           <th className="px-3 py-2 text-left">Student ID</th>
@@ -1234,18 +1342,18 @@ export default function CoordinatorPage() {
                           <th className="px-3 py-2 text-left">Status / Errors</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-200 bg-white">
+                      <tbody className="divide-y divide-neutral-800 bg-[#101012]">
                         {previewData.rows.map((r) => {
                           const isValid = r.errors.length === 0;
                           return (
-                            <tr key={r.rowNumber} className={isValid ? 'hover:bg-gray-50' : 'bg-red-50/50'}>
-                              <td className="px-3 py-2 font-mono text-gray-500">#{r.rowNumber}</td>
-                              <td className="px-3 py-2 font-mono font-bold text-gray-900">{String(r.data.studentId || '')}</td>
-                              <td className="px-3 py-2 text-gray-800">{String(r.data.name || '')}</td>
-                              <td className="px-3 py-2 text-gray-700">{String(r.data.branch || '')}</td>
-                              <td className="px-3 py-2 text-gray-600">{String(r.data.email || '')}</td>
-                              <td className="px-3 py-2 text-gray-700 font-semibold">{String(r.data.activeBacklogs ?? '0')}</td>
-                              <td className="px-3 py-2 font-bold text-blue-700">{r.cgpa.toFixed(2)}</td>
+                            <tr key={r.rowNumber} className={isValid ? 'hover:bg-neutral-900/60' : 'bg-red-50/50'}>
+                              <td className="px-3 py-2 font-mono text-neutral-400">#{r.rowNumber}</td>
+                              <td className="px-3 py-2 font-mono font-bold text-white">{String(r.data.studentId || '')}</td>
+                              <td className="px-3 py-2 text-neutral-200">{String(r.data.name || '')}</td>
+                              <td className="px-3 py-2 text-neutral-300">{String(r.data.branch || '')}</td>
+                              <td className="px-3 py-2 text-neutral-400">{String(r.data.email || '')}</td>
+                              <td className="px-3 py-2 text-neutral-300 font-semibold">{String(r.data.activeBacklogs ?? '0')}</td>
+                              <td className="px-3 py-2 font-bold text-white">{r.cgpa.toFixed(2)}</td>
                               <td className="px-3 py-2">
                                 {isValid ? (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800">
@@ -1268,14 +1376,14 @@ export default function CoordinatorPage() {
                     </table>
                   </div>
 
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-gray-200">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-neutral-800">
                     {previewData.summary.invalid > 0 ? (
-                      <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+                      <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={skipInvalid}
                           onChange={(e) => setSkipInvalid(e.target.checked)}
-                          className="rounded-sm border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                          className="rounded-sm border-neutral-700 text-white focus:ring-blue-500 h-4 w-4"
                         />
                         <span>Skip invalid rows and commit only valid records</span>
                       </label>
@@ -1312,10 +1420,10 @@ export default function CoordinatorPage() {
             <div>
               <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-900">
+                  <h2 className="text-2xl font-bold text-white">
                     Student Applied Requests &amp; Corrections
                   </h2>
-                  <p className="mt-1 text-sm text-gray-500">
+                  <p className="mt-1 text-sm text-neutral-400">
                     Review recruitment drive applications and data correction requests from students in {user?.branch}. Approving a drive application verifies the candidate in the live recruitment spreadsheet.
                   </p>
                 </div>
@@ -1325,9 +1433,9 @@ export default function CoordinatorPage() {
                     type="button"
                     onClick={fetchRequests}
                     disabled={isLoadingRequests}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition shadow-2xs self-start sm:self-auto"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-neutral-700 rounded-md text-xs font-medium text-neutral-300 bg-[#18181b] text-white hover:bg-neutral-900/60 transition shadow-2xs self-start sm:self-auto"
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 text-gray-500 ${isLoadingRequests ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`h-3.5 w-3.5 text-neutral-400 ${isLoadingRequests ? 'animate-spin' : ''}`} />
                     Refresh
                   </button>
                 </div>
@@ -1356,14 +1464,14 @@ export default function CoordinatorPage() {
               )}
 
               {/* Request Type & Status Filter Tabs */}
-              <div className="mb-5 flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3">
+              <div className="mb-5 flex flex-wrap items-center gap-2 border-b border-neutral-800 pb-3">
                 <button
                   type="button"
                   onClick={() => setRequestFilter('all')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
                     requestFilter === 'all'
                       ? 'bg-blue-600 text-white shadow-2xs'
-                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                      : 'bg-white text-neutral-300 border border-neutral-800 hover:bg-neutral-900/60'
                   }`}
                 >
                   All Requests ({correctionRequests.length})
@@ -1374,7 +1482,7 @@ export default function CoordinatorPage() {
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
                     requestFilter === 'pending'
                       ? 'bg-amber-600 text-white shadow-2xs'
-                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                      : 'bg-white text-neutral-300 border border-neutral-800 hover:bg-neutral-900/60'
                   }`}
                 >
                   Pending Review ({pendingRequestsCount})
@@ -1385,7 +1493,7 @@ export default function CoordinatorPage() {
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
                     requestFilter === 'drives'
                       ? 'bg-purple-600 text-white shadow-2xs'
-                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                      : 'bg-white text-neutral-300 border border-neutral-800 hover:bg-neutral-900/60'
                   }`}
                 >
                   Drive Applications ({
@@ -1400,7 +1508,7 @@ export default function CoordinatorPage() {
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
                     requestFilter === 'corrections'
                       ? 'bg-indigo-600 text-white shadow-2xs'
-                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                      : 'bg-white text-neutral-300 border border-neutral-800 hover:bg-neutral-900/60'
                   }`}
                 >
                   Data Corrections ({
@@ -1430,15 +1538,15 @@ export default function CoordinatorPage() {
               )}
 
               {isLoadingRequests ? (
-                <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-8 text-center text-sm text-gray-500">
-                  <RefreshCw className="h-5 w-5 animate-spin mx-auto text-blue-600 mb-2" />
+                <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs p-8 text-center text-sm text-neutral-400">
+                  <RefreshCw className="h-5 w-5 animate-spin mx-auto text-white mb-2" />
                   Loading requests...
                 </div>
               ) : correctionRequests.length === 0 ? (
-                <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-12 text-center">
+                <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs p-12 text-center">
                   <FileCheck2 className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-                  <h3 className="text-sm font-bold text-gray-900">No Applied Requests or Corrections</h3>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <h3 className="text-sm font-bold text-white">No Applied Requests or Corrections</h3>
+                  <p className="mt-1 text-xs text-neutral-400">
                     There are no pending or past drive applications or data correction requests from students in {user?.branch}.
                   </p>
                 </div>
@@ -1463,7 +1571,7 @@ export default function CoordinatorPage() {
                         <div
                           key={req.id}
                           className={`bg-white rounded-xl shadow-xs border overflow-hidden transition ${
-                            isPending ? 'border-amber-200 ring-1 ring-amber-100' : 'border-gray-200'
+                            isPending ? 'border-amber-200 ring-1 ring-amber-100' : 'border-neutral-800'
                           }`}
                         >
                           <div className="p-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1475,24 +1583,24 @@ export default function CoordinatorPage() {
                                   Drive Application
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-neutral-800 text-neutral-200 border border-blue-200">
                                   <FileText className="h-3.5 w-3.5" />
                                   Profile Correction
                                 </span>
                               )}
 
-                              <span className="font-mono font-bold text-sm text-gray-900">
+                              <span className="font-mono font-bold text-sm text-white">
                                 {req.studentId}
                               </span>
                               {req.registrationNumber && (
-                                <span className="font-mono text-xs text-gray-500">
+                                <span className="font-mono text-xs text-neutral-400">
                                   ({req.registrationNumber})
                                 </span>
                               )}
-                              <span className="text-sm font-semibold text-gray-800">
+                              <span className="text-sm font-semibold text-neutral-200">
                                 {req.studentName || 'Student'}
                               </span>
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 font-medium">
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-neutral-300 font-medium">
                                 {req.branch}
                               </span>
                             </div>
@@ -1542,7 +1650,7 @@ export default function CoordinatorPage() {
                                     <Link
                                       href={`/drives/${String(changes.driveId)}`}
                                       target="_blank"
-                                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-purple-800 bg-white hover:bg-purple-100 border border-purple-200 transition shadow-2xs self-start sm:self-auto"
+                                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-purple-800 bg-[#18181b] text-white hover:bg-purple-100 border border-purple-200 transition shadow-2xs self-start sm:self-auto"
                                     >
                                       <FileSpreadsheet className="h-3.5 w-3.5 text-purple-600" />
                                       Open Application Sheet
@@ -1551,7 +1659,7 @@ export default function CoordinatorPage() {
                                   )}
                                 </div>
 
-                                <div className="text-xs text-purple-900 bg-white p-3 rounded-lg border border-purple-200/80">
+                                <div className="text-xs text-purple-900 bg-[#18181b] text-white p-3 rounded-lg border border-purple-200/80">
                                   <span className="font-bold block text-purple-950 mb-0.5">Application Summary:</span>
                                   {req.reason}
                                 </div>
@@ -1559,35 +1667,35 @@ export default function CoordinatorPage() {
                             ) : (
                               /* Card Content: Profile Data Correction Specific */
                               <div>
-                                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                <h4 className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2">
                                   Requested Profile Field Changes:
                                 </h4>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                                   {Object.entries(changes).map(([k, v]) => (
                                     <div
                                       key={k}
-                                      className="p-2.5 bg-gray-50 rounded-lg border border-gray-200 text-xs"
+                                      className="p-2.5 bg-neutral-900/60 rounded-lg border border-neutral-800 text-xs"
                                     >
-                                      <span className="text-gray-500 block font-medium capitalize">
+                                      <span className="text-neutral-400 block font-medium capitalize">
                                         {k.replace(/([A-Z])/g, ' $1')}
                                       </span>
-                                      <span className="text-gray-900 font-mono font-bold mt-0.5 block">
+                                      <span className="text-white font-mono font-bold mt-0.5 block">
                                         {String(v)}
                                       </span>
                                     </div>
                                   ))}
                                 </div>
-                                <div className="bg-gray-50/70 p-3 rounded-lg border border-gray-200 text-xs mt-3">
-                                  <span className="font-semibold text-gray-700 block mb-0.5">
+                                <div className="bg-neutral-900/60/70 p-3 rounded-lg border border-neutral-800 text-xs mt-3">
+                                  <span className="font-semibold text-neutral-300 block mb-0.5">
                                     Student Reason:
                                   </span>
-                                  <p className="text-gray-600">{req.reason}</p>
+                                  <p className="text-neutral-400">{req.reason}</p>
                                 </div>
                               </div>
                             )}
 
                             {req.reviewerRemarks && (
-                              <div className="text-xs text-gray-600 bg-blue-50/50 p-2.5 rounded-lg border border-blue-100">
+                              <div className="text-xs text-neutral-400 bg-neutral-900/60 p-2.5 rounded-lg border border-blue-100">
                                 <span className="font-semibold text-blue-900">Coordinator Remarks: </span>
                                 {req.reviewerRemarks}
                               </div>
@@ -1606,7 +1714,7 @@ export default function CoordinatorPage() {
                                   onChange={(e) =>
                                     setReviewRemarks((prev) => ({ ...prev, [req.id]: e.target.value }))
                                   }
-                                  className="flex-1 text-xs border border-gray-300 rounded-lg px-3 py-2 bg-white text-black font-medium focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                                  className="flex-1 text-xs border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black font-medium focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                                 />
 
                                 <div className="flex items-center gap-2">
@@ -1643,12 +1751,101 @@ export default function CoordinatorPage() {
           {/* TAB 3: CLASS STUDENTS DIRECTORY */}
           {activeTab === 'students' && (
             <div>
+              {/* Batch Semester Progress & Junior Batches Configuration */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-neutral-900/60 border border-neutral-800 mb-6 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-white" />
+                      <span>Batch Semester Progress &amp; Junior Batches Configuration</span>
+                    </h3>
+                    <p className="text-xs text-neutral-400 mt-0.5">
+                      Configure the currently reached semester for junior batches (e.g. Batch 2028 in S2). Future semesters are marked as &quot;Yet to reach&quot; across student records.
+                    </p>
+                  </div>
+                </div>
+
+                {batchSemesterMsg && (
+                  <div
+                    className={`p-3 rounded-xl border text-xs font-medium ${
+                      batchSemesterMsg.type === 'success'
+                        ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300'
+                        : 'bg-red-950/60 border-red-800 text-red-300'
+                    }`}
+                  >
+                    {batchSemesterMsg.text}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  {user?.role === 'MAIN_COORDINATOR' && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-neutral-300 mb-1">
+                        Branch
+                      </label>
+                      <select
+                        value={batchSemesterBranch}
+                        onChange={(e) => setBatchSemesterBranch(e.target.value)}
+                        className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-white"
+                      >
+                        <option value="">All Branches</option>
+                        {['CSE', 'ECE', 'EEE', 'IT', 'CIVIL', 'MCA'].map((b) => (
+                          <option key={b} value={b}>{b}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-neutral-300 mb-1">
+                      Target Batch
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 2028 or ALL"
+                      value={batchSemesterBatch}
+                      onChange={(e) => setBatchSemesterBatch(e.target.value)}
+                      className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-neutral-300 mb-1">
+                      Reached Semester
+                    </label>
+                    <select
+                      value={batchSemesterReached}
+                      onChange={(e) => setBatchSemesterReached(Number(e.target.value))}
+                      className="w-full bg-[#18181b] border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-white font-mono"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
+                        <option key={s} value={s}>
+                          Semester {s} {s <= 2 ? '(Junior Batch)' : s <= 6 ? '(Mid-Term)' : '(Final Year)'}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={handleSaveBatchSemester}
+                      disabled={isSavingBatchSemester}
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-white text-black hover:bg-neutral-200 font-bold rounded-xl text-xs transition disabled:opacity-50 cursor-pointer"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                      <span>{isSavingBatchSemester ? 'Updating...' : 'Set Reached Semester'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-900">
+                  <h2 className="text-2xl font-bold text-white">
                     {user?.branch} Class Students Directory
                   </h2>
-                  <p className="mt-1 text-sm text-gray-500">
+                  <p className="mt-1 text-sm text-neutral-400">
                     Live profile directory and comprehensive academic records of all registered students in {user?.branch}.
                   </p>
                 </div>
@@ -1661,7 +1858,7 @@ export default function CoordinatorPage() {
                       placeholder="Search ID, name, email..."
                       value={studentSearch}
                       onChange={(e) => setStudentSearch(e.target.value)}
-                      className="pl-9 pr-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white text-black font-medium focus:outline-hidden focus:ring-2 focus:ring-blue-500 w-52 sm:w-60"
+                      className="pl-9 pr-3 py-1.5 text-xs border border-neutral-700 rounded-lg bg-[#18181b] text-white text-black font-medium focus:outline-hidden focus:ring-2 focus:ring-blue-500 w-52 sm:w-60"
                     />
                   </div>
 
@@ -1674,7 +1871,7 @@ export default function CoordinatorPage() {
                           e.target.value as 'all' | 'placed' | 'unplaced' | 'backlogs' | 'zero_backlogs'
                         )
                       }
-                      className="text-xs border border-gray-300 rounded-lg px-2.5 py-1.5 bg-white text-black font-medium focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                      className="text-xs border border-neutral-700 rounded-lg px-2.5 py-1.5 bg-[#18181b] text-white text-black font-medium focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="all">All Students ({students.length})</option>
                       <option value="placed">
@@ -1701,34 +1898,34 @@ export default function CoordinatorPage() {
                     type="button"
                     onClick={fetchStudents}
                     disabled={isLoadingStudents}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition shadow-2xs"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-neutral-700 rounded-md text-xs font-medium text-neutral-300 bg-[#18181b] text-white hover:bg-neutral-900/60 transition shadow-2xs"
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 text-gray-500 ${isLoadingStudents ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`h-3.5 w-3.5 text-neutral-400 ${isLoadingStudents ? 'animate-spin' : ''}`} />
                     Refresh
                   </button>
                 </div>
               </div>
 
               {isLoadingStudents ? (
-                <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-8 text-center text-sm text-gray-500">
-                  <RefreshCw className="h-5 w-5 animate-spin mx-auto text-blue-600 mb-2" />
+                <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs p-8 text-center text-sm text-neutral-400">
+                  <RefreshCw className="h-5 w-5 animate-spin mx-auto text-white mb-2" />
                   Loading students...
                 </div>
               ) : filteredStudents.length === 0 ? (
-                <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-12 text-center">
+                <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs p-12 text-center">
                   <Users className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-                  <h3 className="text-sm font-bold text-gray-900">No Students Found</h3>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <h3 className="text-sm font-bold text-white">No Students Found</h3>
+                  <p className="mt-1 text-xs text-neutral-400">
                     {students.length === 0
                       ? `No students have been registered in ${user?.branch} yet. Upload an Excel roster to create accounts.`
                       : 'No students matched your search and filter criteria.'}
                   </p>
                 </div>
               ) : (
-                <div className="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
+                <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs overflow-hidden">
                   <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200 text-xs">
-                      <thead className="bg-gray-50 font-semibold text-gray-600">
+                    <table className="min-w-full divide-y divide-neutral-800 text-xs">
+                      <thead className="bg-neutral-900/60 font-semibold text-neutral-400">
                         <tr>
                           <th className="px-3.5 py-3 text-left">Roll No</th>
                           <th className="px-3.5 py-3 text-left">Reg No</th>
@@ -1745,16 +1942,16 @@ export default function CoordinatorPage() {
                           <th className="px-3.5 py-3 text-center">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-200 bg-white">
+                      <tbody className="divide-y divide-neutral-800 bg-[#101012]">
                         {filteredStudents.map((s) => (
-                          <tr key={s.studentId} className="hover:bg-gray-50/80 transition">
-                            <td className="px-3.5 py-3 font-mono font-bold text-gray-900">
+                          <tr key={s.studentId} className="hover:bg-neutral-900/60/80 transition">
+                            <td className="px-3.5 py-3 font-mono font-bold text-white">
                               {s.studentId}
                             </td>
-                            <td className="px-3.5 py-3 font-mono text-gray-700">
+                            <td className="px-3.5 py-3 font-mono text-neutral-300">
                               {s.registrationNumber || '—'}
                             </td>
-                            <td className="px-3.5 py-3 text-gray-900 font-medium">
+                            <td className="px-3.5 py-3 text-white font-medium">
                               <div>{s.name || '—'}</div>
                               {(s.firstName || s.lastName) && (
                                 <div className="text-[11px] text-gray-400">
@@ -1762,16 +1959,16 @@ export default function CoordinatorPage() {
                                 </div>
                               )}
                             </td>
-                            <td className="px-3.5 py-3 text-gray-600 whitespace-nowrap">
+                            <td className="px-3.5 py-3 text-neutral-400 whitespace-nowrap">
                               <div>{s.dob || '—'}</div>
                               {s.age !== null && s.age !== undefined && (
                                 <span className="text-[10px] text-gray-400 font-medium">{s.age} yrs</span>
                               )}
                             </td>
-                            <td className="px-3.5 py-3 text-gray-600 font-medium">
+                            <td className="px-3.5 py-3 text-neutral-400 font-medium">
                               {s.batch || '—'}
                             </td>
-                            <td className="px-3.5 py-3 text-gray-600 font-mono text-[11px]">
+                            <td className="px-3.5 py-3 text-neutral-400 font-mono text-[11px]">
                               <div className="truncate max-w-[150px]" title={s.email || ''}>{s.email || '—'}</div>
                               <div className="text-gray-400">{s.phone || '—'}</div>
                             </td>
@@ -1786,7 +1983,7 @@ export default function CoordinatorPage() {
                                 {s.activeBacklogs}
                               </span>
                             </td>
-                            <td className="px-3.5 py-3 font-bold text-blue-700 text-sm font-mono">
+                            <td className="px-3.5 py-3 font-bold text-white text-sm font-mono">
                               {s.cgpa.toFixed(2)}
                             </td>
                             <td className="px-3.5 py-3 font-bold text-emerald-700 font-mono">
@@ -1796,7 +1993,7 @@ export default function CoordinatorPage() {
                                 ? `${(s.cgpa * 9.5).toFixed(1)}%`
                                 : '—'}
                             </td>
-                            <td className="px-3.5 py-3 text-gray-700 font-mono whitespace-nowrap">
+                            <td className="px-3.5 py-3 text-neutral-300 font-mono whitespace-nowrap">
                               {typeof s.totalMarks === 'number'
                                 ? `${s.totalMarks}${s.maxMarks ? ` / ${s.maxMarks}` : ''}`
                                 : '—'}
@@ -1807,7 +2004,7 @@ export default function CoordinatorPage() {
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
                                     <Check className="h-3 w-3" /> Placed
                                   </span>
-                                  <div className="font-bold text-gray-900 text-xs truncate max-w-[120px]" title={s.placement.company || undefined}>
+                                  <div className="font-bold text-white text-xs truncate max-w-[120px]" title={s.placement.company || undefined}>
                                     {s.placement.company}
                                   </div>
                                   {s.placement.ctcLpa && (
@@ -1817,7 +2014,7 @@ export default function CoordinatorPage() {
                                   )}
                                 </div>
                               ) : (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-neutral-400">
                                   Unplaced
                                 </span>
                               )}
@@ -1828,7 +2025,7 @@ export default function CoordinatorPage() {
                                   href={s.marksheetUrl}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition whitespace-nowrap"
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-white bg-neutral-900 hover:bg-neutral-800 border border-blue-200 transition whitespace-nowrap"
                                 >
                                   Drive Link 📄
                                 </a>
@@ -1840,9 +2037,9 @@ export default function CoordinatorPage() {
                               <button
                                 type="button"
                                 onClick={() => setSelectedStudentForModal(s)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-300 transition"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-neutral-300 bg-gray-100 hover:bg-gray-200 border border-neutral-700 transition"
                               >
-                                <Eye className="h-3 w-3 text-gray-500" />
+                                <Eye className="h-3 w-3 text-neutral-400" />
                                 Full Record
                               </button>
                             </td>
@@ -1861,10 +2058,10 @@ export default function CoordinatorPage() {
             <div className="space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-900">
+                  <h2 className="text-2xl font-bold text-white">
                     {user?.branch || 'CSE'} Curriculum Semester Credits
                   </h2>
-                  <p className="mt-1 text-sm text-gray-500">
+                  <p className="mt-1 text-sm text-neutral-400">
                     Define official credit weightings per semester for {user?.branch || 'CSE'}. If credits are omitted in student rosters, these defaults are used to compute CGPAs automatically.
                   </p>
                 </div>
@@ -1873,9 +2070,9 @@ export default function CoordinatorPage() {
                   type="button"
                   onClick={fetchCredits}
                   disabled={isLoadingCredits}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition shadow-2xs self-start sm:self-auto"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-neutral-700 rounded-md text-xs font-medium text-neutral-300 bg-[#18181b] text-white hover:bg-neutral-900/60 transition shadow-2xs self-start sm:self-auto"
                 >
-                  <RefreshCw className={`h-3.5 w-3.5 text-gray-500 ${isLoadingCredits ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`h-3.5 w-3.5 text-neutral-400 ${isLoadingCredits ? 'animate-spin' : ''}`} />
                   Reset to Current
                 </button>
               </div>
@@ -1893,27 +2090,27 @@ export default function CoordinatorPage() {
               )}
 
               {isLoadingCredits ? (
-                <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-8 text-center text-sm text-gray-500">
-                  <RefreshCw className="h-5 w-5 animate-spin mx-auto text-blue-600 mb-2" />
+                <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs p-8 text-center text-sm text-neutral-400">
+                  <RefreshCw className="h-5 w-5 animate-spin mx-auto text-white mb-2" />
                   Loading branch curriculum credits...
                 </div>
               ) : (
-                <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-6 space-y-6">
+                <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs p-6 space-y-6">
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                     {branchCreditsList.map((item, idx) => (
                       <div
                         key={item.semester}
-                        className="p-4 rounded-xl border border-gray-200 bg-gray-50/50 hover:bg-white hover:border-blue-300 transition"
+                        className="p-4 rounded-xl border border-neutral-800 bg-neutral-900/40 hover:bg-[#18181b] text-white hover:border-blue-300 transition"
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <span className="font-bold text-gray-900 text-sm">
+                          <span className="font-bold text-white text-sm">
                             Semester {item.semester}
                           </span>
                           <span className="text-[11px] font-mono text-gray-400">
                             Sem {item.semester}
                           </span>
                         </div>
-                        <label className="block text-xs text-gray-500 mb-1 font-medium">
+                        <label className="block text-xs text-neutral-400 mb-1 font-medium">
                           Credits
                         </label>
                         <input
@@ -1927,19 +2124,19 @@ export default function CoordinatorPage() {
                             updated[idx] = { ...item, credits: isNaN(val) ? 0 : val };
                             setBranchCreditsList(updated);
                           }}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 bg-white text-black text-sm font-mono font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                          className="w-full border border-neutral-700 rounded-lg px-3 py-1.5 bg-[#18181b] text-white text-black text-sm font-mono font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                         />
                       </div>
                     ))}
                   </div>
 
-                  <div className="pt-4 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-700">
+                  <div className="pt-4 border-t border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs text-neutral-300">
                       <input
                         type="checkbox"
                         checked={recalculateOnSave}
                         onChange={(e) => setRecalculateOnSave(e.target.checked)}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                        className="rounded border-neutral-700 text-white focus:ring-blue-500 h-4 w-4"
                       />
                       <span>
                         <strong>Recalculate Class CGPAs:</strong> Automatically update all registered {user?.branch || 'CSE'} students with new credit weights upon saving.
@@ -1966,23 +2163,23 @@ export default function CoordinatorPage() {
             <div>
               <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-900">
+                  <h2 className="text-2xl font-bold text-white">
                     Recruitment Drives &amp; Live Application Sheets
                   </h2>
-                  <p className="mt-1 text-sm text-gray-500">
+                  <p className="mt-1 text-sm text-neutral-400">
                     Access ongoing recruitment spreadsheets, inspect candidate applications in real time, and configure batch survey fields for {user?.branch || 'your branch'} students.
                   </p>
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <div className="flex items-center bg-white border border-gray-300 rounded-lg p-0.5 text-xs font-medium">
+                  <div className="flex items-center bg-[#18181b] text-white border border-neutral-700 rounded-lg p-0.5 text-xs font-medium">
                     <button
                       type="button"
                       onClick={() => setDriveBranchFilter('mine')}
                       className={`px-3 py-1.5 rounded-md transition ${
                         driveBranchFilter === 'mine'
                           ? 'bg-blue-600 text-white font-bold shadow-2xs'
-                          : 'text-gray-600 hover:text-gray-900'
+                          : 'text-neutral-400 hover:text-white'
                       }`}
                     >
                       My Branch ({user?.branch || 'CSE'})
@@ -1993,7 +2190,7 @@ export default function CoordinatorPage() {
                       className={`px-3 py-1.5 rounded-md transition ${
                         driveBranchFilter === 'all'
                           ? 'bg-blue-600 text-white font-bold shadow-2xs'
-                          : 'text-gray-600 hover:text-gray-900'
+                          : 'text-neutral-400 hover:text-white'
                       }`}
                     >
                       All College Drives ({drivesList.length})
@@ -2004,24 +2201,24 @@ export default function CoordinatorPage() {
                     type="button"
                     onClick={fetchDrives}
                     disabled={isLoadingDrives}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition shadow-2xs"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-neutral-700 rounded-md text-xs font-medium text-neutral-300 bg-[#18181b] text-white hover:bg-neutral-900/60 transition shadow-2xs"
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 text-gray-500 ${isLoadingDrives ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`h-3.5 w-3.5 text-neutral-400 ${isLoadingDrives ? 'animate-spin' : ''}`} />
                     Refresh
                   </button>
                 </div>
               </div>
 
               {isLoadingDrives && drivesList.length === 0 ? (
-                <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-8 text-center text-sm text-gray-500">
-                  <RefreshCw className="h-5 w-5 animate-spin mx-auto text-blue-600 mb-2" />
+                <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs p-8 text-center text-sm text-neutral-400">
+                  <RefreshCw className="h-5 w-5 animate-spin mx-auto text-white mb-2" />
                   Loading drives...
                 </div>
               ) : drivesList.length === 0 ? (
-                <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-12 text-center">
+                <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs p-12 text-center">
                   <Briefcase className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-                  <h3 className="text-sm font-bold text-gray-900">No Recruitment Drives Active</h3>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <h3 className="text-sm font-bold text-white">No Recruitment Drives Active</h3>
+                  <p className="mt-1 text-xs text-neutral-400">
                     There are no published placement drives right now. The Main Placement Coordinator will post upcoming opportunities here.
                   </p>
                 </div>
@@ -2041,13 +2238,13 @@ export default function CoordinatorPage() {
                       return (
                         <div
                           key={d.id}
-                          className="bg-white rounded-2xl border border-gray-200 p-5 shadow-xs hover:border-blue-400 hover:shadow-md transition flex flex-col justify-between"
+                          className="bg-[#18181b] text-white rounded-2xl border border-neutral-800 p-5 shadow-xs hover:border-blue-400 hover:shadow-md transition flex flex-col justify-between"
                         >
                           <div>
                             <div className="flex items-start justify-between gap-2 mb-2">
                               <div>
-                                <h3 className="font-bold text-gray-900 text-base">{d.company}</h3>
-                                {d.role && <p className="text-xs text-gray-600">{d.role}</p>}
+                                <h3 className="font-bold text-white text-base">{d.company}</h3>
+                                {d.role && <p className="text-xs text-neutral-400">{d.role}</p>}
                               </div>
                               {d.packageCategory === 'DREAM' ? (
                                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
@@ -2058,13 +2255,13 @@ export default function CoordinatorPage() {
                                   ⏳ Internship
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-neutral-800 text-neutral-200 border border-blue-300">
                                   💼 General
                                 </span>
                               )}
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 text-xs bg-gray-50 p-3 rounded-xl border border-gray-100 mb-3">
+                            <div className="grid grid-cols-2 gap-2 text-xs bg-neutral-900/60 p-3 rounded-xl border border-gray-100 mb-3">
                               <div>
                                 <span className="text-gray-400 block text-[10px]">Package CTC:</span>
                                 <span className="font-bold text-emerald-700 font-mono text-sm">
@@ -2073,7 +2270,7 @@ export default function CoordinatorPage() {
                               </div>
                               <div>
                                 <span className="text-gray-400 block text-[10px]">Min CGPA:</span>
-                                <span className="font-bold text-gray-900">
+                                <span className="font-bold text-white">
                                   {d.minCgpa > 0 ? d.minCgpa : 'None'}
                                 </span>
                               </div>
@@ -2089,13 +2286,13 @@ export default function CoordinatorPage() {
                               </div>
                               <div>
                                 <span className="text-gray-400 block text-[10px]">Total Rounds:</span>
-                                <span className="font-semibold text-gray-900">{d.totalRounds}</span>
+                                <span className="font-semibold text-white">{d.totalRounds}</span>
                               </div>
                             </div>
 
-                            <div className="space-y-1.5 text-xs text-gray-600 mb-3">
+                            <div className="space-y-1.5 text-xs text-neutral-400 mb-3">
                               <div className="flex items-center gap-1.5">
-                                <span className="font-medium text-gray-500">Eligible:</span>
+                                <span className="font-medium text-neutral-400">Eligible:</span>
                                 <div className="flex flex-wrap gap-1">
                                   {d.eligibleBranches.map((b) => (
                                     <span
@@ -2103,7 +2300,7 @@ export default function CoordinatorPage() {
                                       className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                                         b === user?.branch
                                           ? 'bg-blue-600 text-white'
-                                          : 'bg-gray-100 text-gray-700'
+                                          : 'bg-gray-100 text-neutral-300'
                                       }`}
                                     >
                                       {b}
@@ -2118,7 +2315,7 @@ export default function CoordinatorPage() {
 
                             {/* Batch Info Fields Pill */}
                             {extraCount > 0 ? (
-                              <div className="mb-4 p-2 bg-blue-50/70 border border-blue-100 rounded-lg">
+                              <div className="mb-4 p-2 bg-neutral-900/70 border border-blue-100 rounded-lg">
                                 <span className="text-[10px] font-bold text-blue-900 uppercase tracking-wider block mb-1">
                                   {extraCount} Batch Info Field{extraCount === 1 ? '' : 's'} Active:
                                 </span>
@@ -2126,7 +2323,7 @@ export default function CoordinatorPage() {
                                   {d.extraFields?.map((f) => (
                                     <span
                                       key={f.key}
-                                      className="px-2 py-0.5 rounded-full bg-white text-blue-700 border border-blue-200 text-[10px] font-semibold"
+                                      className="px-2 py-0.5 rounded-full bg-[#18181b] text-white text-white border border-blue-200 text-[10px] font-semibold"
                                     >
                                       {f.label}
                                     </span>
@@ -2158,9 +2355,9 @@ export default function CoordinatorPage() {
                                   setBatchFieldModalDriveId(d.id);
                                   setBatchFieldMsg(null);
                                 }}
-                                className="inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-300 transition"
+                                className="inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] font-semibold text-neutral-300 bg-gray-100 hover:bg-gray-200 border border-neutral-700 transition"
                               >
-                                <Plus className="h-3 w-3 text-blue-600" />
+                                <Plus className="h-3 w-3 text-white" />
                                 Add Batch Field
                               </button>
 
@@ -2168,10 +2365,10 @@ export default function CoordinatorPage() {
                                 href={`http://localhost:4000/api/drives/${d.id}/export`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 transition"
+                                className="inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] font-semibold text-neutral-300 bg-[#18181b] text-white hover:bg-neutral-900/60 border border-neutral-700 transition"
                                 title="Download standard report with verified candidates and branch summary"
                               >
-                                <Download className="h-3 w-3 text-gray-500" />
+                                <Download className="h-3 w-3 text-neutral-400" />
                                 Export Excel
                               </a>
 
@@ -2194,20 +2391,21 @@ export default function CoordinatorPage() {
               )}
             </div>
           )}
-        </main>
+          </div>
+        </div>
 
         {/* BATCH INFO COLLECTION MODAL */}
         {batchFieldModalDriveId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-gray-200">
-              <div className="p-5 border-b border-gray-200 flex items-center justify-between bg-blue-50/50">
+            <div className="bg-[#101012] rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-neutral-800 text-white">
+              <div className="p-5 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/60">
                 <div className="flex items-center gap-2.5">
-                  <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
+                  <div className="p-2 bg-neutral-800 text-white rounded-lg">
                     <Plus className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-gray-900">Add Batch Info Collection Field</h3>
-                    <p className="text-xs text-gray-500">Collect custom questions/answers from applicants in the spreadsheet</p>
+                    <h3 className="text-sm font-bold text-white">Add Batch Info Collection Field</h3>
+                    <p className="text-xs text-neutral-400">Collect custom questions/answers from applicants in the spreadsheet</p>
                   </div>
                 </div>
                 <button
@@ -2216,7 +2414,7 @@ export default function CoordinatorPage() {
                     setBatchFieldModalDriveId(null);
                     setBatchFieldMsg(null);
                   }}
-                  className="text-gray-400 hover:text-gray-600 p-1"
+                  className="text-gray-400 hover:text-neutral-400 p-1"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -2241,7 +2439,7 @@ export default function CoordinatorPage() {
                 )}
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-800 mb-1">
+                  <label className="block text-xs font-semibold text-neutral-200 mb-1">
                     Question / Field Label <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -2255,12 +2453,12 @@ export default function CoordinatorPage() {
                         setNewFieldKey(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '_'));
                       }
                     }}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-800 mb-1">
+                  <label className="block text-xs font-semibold text-neutral-200 mb-1">
                     Column Key (Identifier) <span className="text-red-500">*</span>
                   </label>
                   <input
@@ -2269,18 +2467,18 @@ export default function CoordinatorPage() {
                     placeholder="e.g. github_link"
                     value={newFieldKey}
                     onChange={(e) => setNewFieldKey(e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-xs font-mono font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-mono font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   />
                   <p className="mt-1 text-[11px] text-gray-400">Unique identifier used as the spreadsheet column key.</p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-800 mb-1">Input Type</label>
+                    <label className="block text-xs font-semibold text-neutral-200 mb-1">Input Type</label>
                     <select
                       value={newFieldType}
                       onChange={(e) => setNewFieldType(e.target.value as 'text' | 'number' | 'dropdown')}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                      className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                     >
                       <option value="text">Text (Single / Multi-line)</option>
                       <option value="number">Numeric</option>
@@ -2289,12 +2487,12 @@ export default function CoordinatorPage() {
                   </div>
 
                   <div className="flex items-center pt-5">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-700">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-neutral-300">
                       <input
                         type="checkbox"
                         checked={newFieldRequired}
                         onChange={(e) => setNewFieldRequired(e.target.checked)}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                        className="rounded border-neutral-700 text-white focus:ring-blue-500 h-4 w-4"
                       />
                       Mandatory Field
                     </label>
@@ -2303,7 +2501,7 @@ export default function CoordinatorPage() {
 
                 {newFieldType === 'dropdown' && (
                   <div>
-                    <label className="block text-xs font-semibold text-gray-800 mb-1">
+                    <label className="block text-xs font-semibold text-neutral-200 mb-1">
                       Dropdown Options (Comma-separated) <span className="text-red-500">*</span>
                     </label>
                     <input
@@ -2312,7 +2510,7 @@ export default function CoordinatorPage() {
                       placeholder="e.g. Bangalore, Hyderabad, Pune, Remote"
                       value={newFieldOptions}
                       onChange={(e) => setNewFieldOptions(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 bg-white text-black text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                      className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                     />
                   </div>
                 )}
@@ -2328,7 +2526,7 @@ export default function CoordinatorPage() {
                       setBatchFieldModalDriveId(null);
                       setBatchFieldMsg(null);
                     }}
-                    className="px-4 py-2 border border-gray-300 rounded-lg text-xs font-medium text-gray-700 bg-white hover:bg-gray-50"
+                    className="px-4 py-2 border border-neutral-700 rounded-lg text-xs font-medium text-neutral-300 bg-[#18181b] text-white hover:bg-neutral-900/60"
                   >
                     Cancel
                   </button>
@@ -2348,17 +2546,17 @@ export default function CoordinatorPage() {
         {/* FULL STUDENT PROFILE MODAL */}
         {selectedStudentForModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-gray-200 max-h-[90vh] flex flex-col">
-              <div className="p-5 border-b border-gray-200 flex items-center justify-between bg-blue-50/50 shrink-0">
+            <div className="bg-[#101012] rounded-3xl shadow-2xl max-w-2xl w-full overflow-hidden border border-neutral-800 text-white max-h-[90vh] flex flex-col">
+              <div className="p-5 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/60 shrink-0">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-blue-100 text-blue-700 rounded-xl font-mono font-bold text-sm">
+                  <div className="p-2.5 bg-neutral-800 text-white rounded-xl font-mono font-bold text-sm">
                     {selectedStudentForModal.studentId}
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-gray-900">
+                    <h3 className="text-base font-bold text-white">
                       {selectedStudentForModal.name || 'Student Profile'}
                     </h3>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-neutral-400">
                       Reg No: {selectedStudentForModal.registrationNumber || '—'} &bull; Branch: {selectedStudentForModal.branch} ({selectedStudentForModal.batch || 'Batch'})
                     </p>
                   </div>
@@ -2366,7 +2564,7 @@ export default function CoordinatorPage() {
                 <button
                   type="button"
                   onClick={() => setSelectedStudentForModal(null)}
-                  className="text-gray-400 hover:text-gray-600 p-1"
+                  className="text-gray-400 hover:text-neutral-400 p-1"
                 >
                   <X className="h-5 w-5" />
                 </button>
@@ -2391,7 +2589,7 @@ export default function CoordinatorPage() {
                     <Award className="h-10 w-10 text-emerald-500 opacity-80" />
                   </div>
                 ) : (
-                  <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs text-gray-600 flex items-center gap-2">
+                  <div className="p-3 rounded-xl bg-neutral-900/60 border border-neutral-800 text-xs text-neutral-400 flex items-center gap-2">
                     <Briefcase className="h-4 w-4 text-gray-400" />
                     <span>Currently unplaced. Eligible for active recruitment drives.</span>
                   </div>
@@ -2399,29 +2597,29 @@ export default function CoordinatorPage() {
 
                 {/* Academic Details Grid */}
                 <div>
-                  <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Personal &amp; Contact Details</h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs bg-gray-50 p-3 rounded-xl border border-gray-200">
+                  <h4 className="text-xs font-bold text-neutral-300 uppercase tracking-wider mb-2">Personal &amp; Contact Details</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs bg-neutral-900/60 p-3 rounded-xl border border-neutral-800">
                     <div>
                       <span className="text-gray-400 block">First Name:</span>
-                      <span className="font-semibold text-gray-900">{selectedStudentForModal.firstName || '—'}</span>
+                      <span className="font-semibold text-white">{selectedStudentForModal.firstName || '—'}</span>
                     </div>
                     <div>
                       <span className="text-gray-400 block">Last Name:</span>
-                      <span className="font-semibold text-gray-900">{selectedStudentForModal.lastName || '—'}</span>
+                      <span className="font-semibold text-white">{selectedStudentForModal.lastName || '—'}</span>
                     </div>
                     <div>
                       <span className="text-gray-400 block">DOB / Age:</span>
-                      <span className="font-semibold text-gray-900">
+                      <span className="font-semibold text-white">
                         {selectedStudentForModal.dob || '—'} {selectedStudentForModal.age ? `(${selectedStudentForModal.age} yrs)` : ''}
                       </span>
                     </div>
                     <div>
                       <span className="text-gray-400 block">Email:</span>
-                      <span className="font-semibold text-gray-900 font-mono text-[11px] break-all">{selectedStudentForModal.email || '—'}</span>
+                      <span className="font-semibold text-white font-mono text-[11px] break-all">{selectedStudentForModal.email || '—'}</span>
                     </div>
                     <div>
                       <span className="text-gray-400 block">Phone:</span>
-                      <span className="font-semibold text-gray-900">{selectedStudentForModal.phone || '—'}</span>
+                      <span className="font-semibold text-white">{selectedStudentForModal.phone || '—'}</span>
                     </div>
                     <div>
                       <span className="text-gray-400 block">Marksheet Drive Link:</span>
@@ -2430,7 +2628,7 @@ export default function CoordinatorPage() {
                           href={selectedStudentForModal.marksheetUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="font-bold text-blue-600 hover:underline inline-flex items-center gap-1"
+                          className="font-bold text-white hover:underline inline-flex items-center gap-1"
                         >
                           View Link <ExternalLink className="h-3 w-3" />
                         </a>
@@ -2443,11 +2641,11 @@ export default function CoordinatorPage() {
 
                 {/* Academic Performance */}
                 <div>
-                  <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Academic Performance</h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-gray-50 p-3 rounded-xl border border-gray-200">
+                  <h4 className="text-xs font-bold text-neutral-300 uppercase tracking-wider mb-2">Academic Performance</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-neutral-900/60 p-3 rounded-xl border border-neutral-800">
                     <div>
                       <span className="text-gray-400 block">Cumulative CGPA:</span>
-                      <span className="text-base font-bold text-blue-700 font-mono">{selectedStudentForModal.cgpa.toFixed(2)}</span>
+                      <span className="text-base font-bold text-white font-mono">{selectedStudentForModal.cgpa.toFixed(2)}</span>
                     </div>
                     <div>
                       <span className="text-gray-400 block">Equivalent Percentage:</span>
@@ -2459,7 +2657,7 @@ export default function CoordinatorPage() {
                     </div>
                     <div>
                       <span className="text-gray-400 block">Total Marks:</span>
-                      <span className="text-sm font-semibold text-gray-900 font-mono">
+                      <span className="text-sm font-semibold text-white font-mono">
                         {selectedStudentForModal.totalMarks
                           ? `${selectedStudentForModal.totalMarks}${selectedStudentForModal.maxMarks ? ` / ${selectedStudentForModal.maxMarks}` : ''}`
                           : '—'}
@@ -2480,58 +2678,96 @@ export default function CoordinatorPage() {
                   </div>
                 </div>
 
-                {/* Semester-wise Records */}
+                {/* Semester-wise Records S1 to S8 */}
                 <div>
-                  <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">Semester-Wise SGPAs &amp; Marksheets</h4>
-                  {selectedStudentForModal.semesters && selectedStudentForModal.semesters.length > 0 ? (
-                    <div className="border border-gray-200 rounded-xl overflow-hidden">
-                      <table className="min-w-full divide-y divide-gray-200 text-xs">
-                        <thead className="bg-gray-50 text-gray-600 font-semibold">
-                          <tr>
-                            <th className="px-3 py-2 text-left">Semester</th>
-                            <th className="px-3 py-2 text-left">SGPA</th>
-                            <th className="px-3 py-2 text-left">Credits</th>
-                            <th className="px-3 py-2 text-left">Marksheet Drive Link</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200 bg-white">
-                          {selectedStudentForModal.semesters.map((sem) => (
-                            <tr key={sem.semester}>
-                              <td className="px-3 py-2 font-bold text-gray-900">Semester {sem.semester}</td>
-                              <td className="px-3 py-2 font-mono font-bold text-blue-700">{sem.sgpa.toFixed(2)}</td>
-                              <td className="px-3 py-2 font-mono text-gray-600">{sem.credits}</td>
+                  <h4 className="text-xs font-bold text-neutral-300 uppercase tracking-wider mb-2">
+                    Semester-Wise Academic Records (Semesters 1 to 8)
+                  </h4>
+                  <div className="border border-neutral-800 rounded-xl overflow-hidden">
+                    <table className="min-w-full divide-y divide-neutral-800 text-xs">
+                      <thead className="bg-neutral-900/60 text-neutral-400 font-semibold">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Semester</th>
+                          <th className="px-3 py-2 text-left">Status</th>
+                          <th className="px-3 py-2 text-left">SGPA</th>
+                          <th className="px-3 py-2 text-left">Credits</th>
+                          <th className="px-3 py-2 text-left">Marksheet Drive Link</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-800 bg-[#101012]">
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map((semNum) => {
+                          const reached = semNum <= (selectedStudentForModal.currentSemester ?? 8);
+                          const sem = selectedStudentForModal.semesters?.find((s) => s.semester === semNum);
+                          return (
+                            <tr key={semNum} className={!reached ? 'opacity-60 bg-neutral-950/40' : ''}>
+                              <td className="px-3 py-2 font-bold text-white">Semester {semNum}</td>
                               <td className="px-3 py-2">
-                                {sem.marksheetUrl ? (
+                                {!reached ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-neutral-900 text-neutral-400 border border-neutral-800">
+                                    ⏳ Yet to reach (Junior Batch)
+                                  </span>
+                                ) : sem ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800">
+                                    Completed
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] text-neutral-500 font-mono">Not Uploaded</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 font-mono font-bold text-white">
+                                {reached && sem ? sem.sgpa.toFixed(2) : '—'}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-neutral-400">
+                                {reached && sem ? sem.credits : '—'}
+                              </td>
+                              <td className="px-3 py-2">
+                                {reached && sem?.marksheetUrl ? (
                                   <a
                                     href={sem.marksheetUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-blue-600 hover:underline font-medium text-[11px]"
+                                    className="inline-flex items-center gap-1 text-white hover:underline font-medium text-[11px]"
                                   >
-                                    Sem {sem.semester} Drive Link <ExternalLink className="h-3 w-3" />
+                                    Sem {semNum} Marksheet <ExternalLink className="h-3 w-3" />
                                   </a>
                                 ) : (
                                   <span className="text-gray-400">—</span>
                                 )}
                               </td>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="p-4 rounded-xl bg-gray-50 border border-gray-200 text-xs text-gray-500 text-center">
-                      No individual semester breakdowns recorded.
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Additional Dynamic Profile Details */}
+                {selectedStudentForModal.additionalDetails &&
+                  Object.keys(selectedStudentForModal.additionalDetails).length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-bold text-neutral-300 uppercase tracking-wider mb-2">
+                        Saved Candidate Dynamic Details (Autofill Data)
+                      </h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs bg-neutral-900/60 p-3 rounded-xl border border-neutral-800">
+                        {Object.entries(selectedStudentForModal.additionalDetails).map(([key, value]) => (
+                          <div key={key}>
+                            <span className="text-neutral-400 block capitalize">
+                              {key.replace(/([A-Z])/g, ' $1')}:
+                            </span>
+                            <span className="font-semibold text-white">{String(value)}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
-                </div>
               </div>
 
-              <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end shrink-0">
+              <div className="p-4 border-t border-neutral-800 bg-neutral-900/60 flex justify-end shrink-0">
                 <button
                   type="button"
                   onClick={() => setSelectedStudentForModal(null)}
-                  className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-xs font-semibold transition"
+                  className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-neutral-200 rounded-lg text-xs font-semibold transition"
                 >
                   Close
                 </button>

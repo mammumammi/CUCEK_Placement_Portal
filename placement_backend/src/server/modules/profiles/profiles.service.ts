@@ -14,6 +14,7 @@ import type {
   CreateCorrectionRequestInput,
   ReviewCorrectionRequestInput,
   CompleteProfileInput,
+  SetBatchCurrentSemesterInput,
 } from './profiles.schema';
 
 export interface ProfileActor {
@@ -410,10 +411,29 @@ export async function correctStudentProfile(
     's4MarksheetUrl',
     's5MarksheetUrl',
     's6MarksheetUrl',
+    's7MarksheetUrl',
+    's8MarksheetUrl',
+    'currentSemester',
   ];
 
   const profileUpdates: Partial<typeof studentProfiles.$inferInsert> = {};
   const auditEntries: (typeof auditLogs.$inferInsert)[] = [];
+
+  // Check additionalDetails updates
+  if (input.additionalDetails !== undefined) {
+    const existingDetails = (existing.additionalDetails as Record<string, unknown>) || {};
+    const mergedDetails = { ...existingDetails, ...input.additionalDetails };
+    profileUpdates.additionalDetails = mergedDetails;
+    auditEntries.push({
+      id: crypto.randomUUID(),
+      actorId: actor.id,
+      studentUserId: existing.userId,
+      field: 'additionalDetails',
+      oldValue: JSON.stringify(existingDetails),
+      newValue: JSON.stringify(mergedDetails),
+      createdAt: new Date(),
+    });
+  }
 
   // Check scalar field changes
   for (const key of scalarKeys) {
@@ -769,6 +789,10 @@ export async function reviewCorrectionRequest(
       if (typeof changes.phone === 'string') profileInput.phone = changes.phone;
       if (typeof changes.activeBacklogs === 'number') profileInput.activeBacklogs = changes.activeBacklogs;
       if (typeof changes.resumeUrl === 'string') profileInput.resumeUrl = changes.resumeUrl;
+      if (typeof changes.currentSemester === 'number') profileInput.currentSemester = changes.currentSemester;
+      if (changes.additionalDetails && typeof changes.additionalDetails === 'object') {
+        profileInput.additionalDetails = changes.additionalDetails as Record<string, unknown>;
+      }
 
       // Check semester changes e.g. s1Sgpa, s1Credits or semesters array
       const semestersList: { semester: number; sgpa: number; credits: number }[] = [];
@@ -779,7 +803,7 @@ export async function reviewCorrectionRequest(
           }
         }
       } else {
-        for (let sem = 1; sem <= 6; sem++) {
+        for (let sem = 1; sem <= 8; sem++) {
           const sgpaKey = `s${sem}Sgpa`;
           const creditsKey = `s${sem}Credits`;
           if (typeof changes[sgpaKey] === 'number') {
@@ -847,6 +871,74 @@ export async function reviewCorrectionRequest(
   return {
     ...updated,
     requestedChanges: finalChanges,
+  };
+}
+
+/**
+ * Updates the current reached semester in bulk for students (e.g. configuring junior batches).
+ * Coordinators are scoped to their branch, whereas MAIN_COORDINATOR can update globally or for any branch.
+ */
+export async function updateBatchCurrentSemester(
+  db: Db,
+  actor: ProfileActor,
+  input: SetBatchCurrentSemesterInput
+) {
+  if (actor.role === 'STUDENT') {
+    throw new PortalError('FORBIDDEN', 'Students cannot modify batch semester configurations', 403);
+  }
+
+  const targetBranch = actor.role === 'BRANCH_COORDINATOR' ? actor.branch! : (input.branch || null);
+
+  const conditions = [];
+  if (targetBranch) {
+    conditions.push(eq(studentProfiles.branch, targetBranch));
+  }
+  if (input.batch) {
+    conditions.push(eq(studentProfiles.batch, input.batch));
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const targetProfiles = await db
+    .select({ userId: studentProfiles.userId, studentId: studentProfiles.studentId })
+    .from(studentProfiles)
+    .where(whereClause);
+
+  if (targetProfiles.length === 0) {
+    return {
+      updatedCount: 0,
+      currentSemester: input.currentSemester,
+      branch: targetBranch,
+      batch: input.batch || 'ALL',
+      message: 'No matching student profiles found for the given criteria',
+    };
+  }
+
+  db.transaction((tx) => {
+    tx.update(studentProfiles)
+      .set({ currentSemester: input.currentSemester })
+      .where(whereClause)
+      .run();
+
+    for (const p of targetProfiles) {
+      tx.insert(auditLogs).values({
+        id: crypto.randomUUID(),
+        actorId: actor.id,
+        studentUserId: p.userId,
+        field: 'currentSemester',
+        oldValue: 'configured',
+        newValue: String(input.currentSemester),
+        createdAt: new Date(),
+      }).run();
+    }
+  });
+
+  return {
+    updatedCount: targetProfiles.length,
+    currentSemester: input.currentSemester,
+    branch: targetBranch,
+    batch: input.batch || 'ALL',
+    message: `Successfully set reached semester to S${input.currentSemester} for ${targetProfiles.length} students.`,
   };
 }
 

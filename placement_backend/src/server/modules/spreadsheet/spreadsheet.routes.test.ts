@@ -467,16 +467,25 @@ describe('Spreadsheet Module (/api/spreadsheet)', () => {
       },
     ]);
 
-    // 1. Student Alice gets ONLY her own row
+    // 1. Student Alice gets rows: can see other students but only edit her own
     const aliceRes = await request(app)
       .get(`/api/spreadsheet/drives/${activeDriveId}/rows`)
       .set('Cookie', cseStudentCookie);
 
     expect(aliceRes.status).toBe(200);
-    expect(aliceRes.body).toHaveLength(1);
-    expect(aliceRes.body[0].studentId).toBe(cseStudentId);
-    expect(aliceRes.body[0].permissions.canEditExtraData).toBe(true);
-    expect(aliceRes.body[0].permissions.canVerify).toBe(false);
+    expect(aliceRes.body).toHaveLength(2);
+    const aliceRow = aliceRes.body.find((r: { studentId: string }) => r.studentId === cseStudentId);
+    expect(aliceRow).toBeDefined();
+    expect(aliceRow.permissions.canEditExtraData).toBe(true);
+    expect(aliceRow.permissions.canVerify).toBe(false);
+    expect(aliceRow.permissions.locked).toBe(false);
+
+    // Other students' rows (Bob) are visible to Alice but locked (read-only)
+    const bobRow = aliceRes.body.find((r: { studentId: string }) => r.studentId === eceStudentId);
+    expect(bobRow).toBeDefined();
+    expect(bobRow.permissions.canEditExtraData).toBe(false);
+    expect(bobRow.permissions.canVerify).toBe(false);
+    expect(bobRow.permissions.locked).toBe(true);
 
     // 2. CSE Coordinator gets ONLY CSE rows (Alice)
     const cseRes = await request(app)

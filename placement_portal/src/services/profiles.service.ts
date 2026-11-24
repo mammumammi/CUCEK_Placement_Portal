@@ -41,6 +41,10 @@ export interface StudentProfileData {
   s4MarksheetUrl?: string | null;
   s5MarksheetUrl?: string | null;
   s6MarksheetUrl?: string | null;
+  s7MarksheetUrl?: string | null;
+  s8MarksheetUrl?: string | null;
+  currentSemester?: number;
+  additionalDetails?: Record<string, unknown>;
   resumeUrl?: string | null;
   isProfileComplete?: boolean;
   semesters?: SemesterDetail[];
@@ -185,6 +189,33 @@ export async function getDepartmentStats(branch?: string): Promise<DepartmentSta
   const response = await apiClient.get<DepartmentStats>('/profiles/stats', {
     params: branch ? { branch } : undefined,
   });
+  return response.data;
+}
+
+export interface SetBatchCurrentSemesterPayload {
+  branch?: string;
+  batch?: string;
+  currentSemester: number;
+}
+
+export interface SetBatchCurrentSemesterResponse {
+  updatedCount: number;
+  currentSemester: number;
+  branch: string | null;
+  batch: string;
+  message: string;
+}
+
+/**
+ * Updates the current reached semester for a batch of students (e.g. junior batches).
+ */
+export async function updateBatchCurrentSemester(
+  payload: SetBatchCurrentSemesterPayload
+): Promise<SetBatchCurrentSemesterResponse> {
+  const response = await apiClient.patch<SetBatchCurrentSemesterResponse>(
+    '/profiles/batch-current-semester',
+    payload
+  );
   return response.data;
 }
 
