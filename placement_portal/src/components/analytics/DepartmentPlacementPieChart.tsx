@@ -1,18 +1,20 @@
 'use client';
 
 /**
- * @fileoverview Department Placement Pie Chart Component.
+ * @fileoverview Department Placement Pie / Donut Chart Component.
  * Visualizes the distribution of placements across academic departments (CSE, ECE, EEE, IT, CIVIL, MCA).
  * Slices/portions represent each department's share of total placed students:
  * portion = (dept_placed / total_placed) * 100%.
  *
  * Designed with the Modern 2026 Black & White high-contrast aesthetic.
+ * Uses exact SVG geometric donut arc paths to eliminate CSS transform-origin bugs,
+ * off-center rotation drift, and visual overlaps.
  *
  * @module components/analytics/DepartmentPlacementPieChart
  */
 
 import React, { useState, useId } from 'react';
-import { Building2, Award, Users, TrendingUp } from 'lucide-react';
+import { Building2, Award } from 'lucide-react';
 
 export interface BranchStat {
   branch: string;
@@ -31,52 +33,102 @@ interface DepartmentPlacementPieChartProps {
   showLegendCards?: boolean;
 }
 
-// 2026 Monochrome silver / zinc spectrum palette for departments
+// 2026 Monochrome silver / zinc spectrum palette for departments with high contrast against dark theme
 const DEPT_COLORS: Record<string, { fill: string; border: string; label: string; textClass: string }> = {
   CSE: {
-    fill: '#ffffff', // Pure White
+    fill: '#ffffff', // Pure White (100% luminance)
     border: '#ffffff',
     label: 'Computer Science & Engineering',
     textClass: 'text-white',
   },
   ECE: {
-    fill: '#e4e4e7', // Zinc-200
-    border: '#d4d4d8',
+    fill: '#cbd5e1', // Cool Silver / Slate-300 (80% luminance)
+    border: '#e2e8f0',
     label: 'Electronics & Communication',
-    textClass: 'text-zinc-200',
+    textClass: 'text-slate-200',
   },
   EEE: {
-    fill: '#a1a1aa', // Zinc-400
-    border: '#71717a',
+    fill: '#94a3b8', // Medium Silver / Slate-400 (65% luminance)
+    border: '#cbd5e1',
     label: 'Electrical & Electronics',
-    textClass: 'text-zinc-400',
+    textClass: 'text-slate-300',
   },
   IT: {
-    fill: '#71717a', // Zinc-500
-    border: '#52525b',
+    fill: '#64748b', // Steel Slate-500 (50% luminance)
+    border: '#94a3b8',
     label: 'Information Technology',
-    textClass: 'text-zinc-400',
+    textClass: 'text-slate-400',
   },
   CIVIL: {
-    fill: '#52525b', // Zinc-600
-    border: '#3f3f46',
+    fill: '#a1a1aa', // Neutral Zinc-400 (65% luminance)
+    border: '#d4d4d8',
     label: 'Civil Engineering',
-    textClass: 'text-zinc-400',
+    textClass: 'text-zinc-300',
   },
   MCA: {
-    fill: '#3f3f46', // Zinc-700
-    border: '#27272a',
+    fill: '#475569', // Deep Slate-600 (40% luminance with bright border)
+    border: '#94a3b8',
     label: 'Master of Computer Applications',
-    textClass: 'text-zinc-300',
+    textClass: 'text-slate-400',
   },
 };
 
 const DEFAULT_DEPT = {
-  fill: '#71717a',
-  border: '#52525b',
+  fill: '#94a3b8',
+  border: '#cbd5e1',
   label: 'Department',
   textClass: 'text-neutral-300',
 };
+
+/**
+ * Mathematically generates an exact SVG donut arc path.
+ * 0 degrees = 12 o'clock, proceeding clockwise.
+ */
+function describeDonutSlice(
+  cx: number,
+  cy: number,
+  innerRadius: number,
+  outerRadius: number,
+  startAngle: number,
+  endAngle: number
+): string {
+  // If full circle (360 degrees or close)
+  if (endAngle - startAngle >= 359.9) {
+    return [
+      `M ${cx} ${cy - outerRadius}`,
+      `A ${outerRadius} ${outerRadius} 0 1 1 ${cx} ${cy + outerRadius}`,
+      `A ${outerRadius} ${outerRadius} 0 1 1 ${cx} ${cy - outerRadius}`,
+      `M ${cx} ${cy - innerRadius}`,
+      `A ${innerRadius} ${innerRadius} 0 1 0 ${cx} ${cy + innerRadius}`,
+      `A ${innerRadius} ${innerRadius} 0 1 0 ${cx} ${cy - innerRadius}`,
+      'Z',
+    ].join(' ');
+  }
+
+  // Convert angles to radians (0 deg is top / 12 o'clock, so subtract 90 deg)
+  const startRad = ((startAngle - 90) * Math.PI) / 180;
+  const endRad = ((endAngle - 90) * Math.PI) / 180;
+
+  const x1 = (cx + outerRadius * Math.cos(startRad)).toFixed(3);
+  const y1 = (cy + outerRadius * Math.sin(startRad)).toFixed(3);
+  const x2 = (cx + outerRadius * Math.cos(endRad)).toFixed(3);
+  const y2 = (cy + outerRadius * Math.sin(endRad)).toFixed(3);
+
+  const x3 = (cx + innerRadius * Math.cos(endRad)).toFixed(3);
+  const y3 = (cy + innerRadius * Math.sin(endRad)).toFixed(3);
+  const x4 = (cx + innerRadius * Math.cos(startRad)).toFixed(3);
+  const y4 = (cy + innerRadius * Math.sin(startRad)).toFixed(3);
+
+  const largeArcFlag = endAngle - startAngle > 180 ? 1 : 0;
+
+  return [
+    `M ${x1} ${y1}`,
+    `A ${outerRadius} ${outerRadius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+    `L ${x3} ${y3}`,
+    `A ${innerRadius} ${innerRadius} 0 ${largeArcFlag} 0 ${x4} ${y4}`,
+    'Z',
+  ].join(' ');
+}
 
 export function DepartmentPlacementPieChart({
   branchBreakdown,
@@ -111,22 +163,15 @@ export function DepartmentPlacementPieChart({
   const totalPlacedCount = propTotalPlaced !== undefined ? propTotalPlaced : calculatedTotalPlaced;
 
   // Compute slice proportions based on number of placements per department
-  // Circumference of SVG circle with radius 38: 2 * PI * 38 ≈ 238.761
-  const RADIUS = 38;
-  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-
   let cumulativeAngle = 0;
   const slices = normalizedData.map((dept) => {
     const placed = dept.placed || 0;
     const shareFraction = totalPlacedCount > 0 ? placed / totalPlacedCount : 0;
     const sharePercentage = Math.round(shareFraction * 1000) / 10; // 1 decimal place
 
-    const strokeLength = CIRCUMFERENCE * shareFraction;
-    const strokeRemaining = CIRCUMFERENCE - strokeLength;
-    const currentAngle = cumulativeAngle;
-
-    // advance angle for next slice
-    cumulativeAngle += shareFraction * 360;
+    const startAngle = cumulativeAngle;
+    const endAngle = cumulativeAngle + shareFraction * 360;
+    cumulativeAngle = endAngle;
 
     const styling = DEPT_COLORS[dept.branch.toUpperCase()] || DEFAULT_DEPT;
 
@@ -134,9 +179,8 @@ export function DepartmentPlacementPieChart({
       ...dept,
       shareFraction,
       sharePercentage,
-      strokeLength,
-      strokeRemaining,
-      startAngle: currentAngle,
+      startAngle,
+      endAngle,
       styling,
     };
   });
@@ -176,45 +220,50 @@ export function DepartmentPlacementPieChart({
         <div className="lg:col-span-5 flex flex-col items-center justify-center relative py-2">
           <div className="relative w-56 h-56 flex items-center justify-center">
             <svg
-              className="w-full h-full -rotate-90 transform"
+              className="w-full h-full"
               viewBox="0 0 100 100"
               aria-label="Department Placement Share Pie Chart"
             >
-              {/* Neutral background track circle */}
+              {/* Neutral background circular track */}
               <circle
                 cx="50"
                 cy="50"
-                r={RADIUS}
+                r="38"
                 stroke="#27272a"
                 strokeWidth="11"
                 fill="transparent"
               />
 
-              {/* Render pie/donut slices if there are placed students */}
+              {/* Render mathematically exact pie/donut slices */}
               {totalPlacedCount > 0 ? (
                 slices.map((slice) => {
                   if (slice.placed <= 0) return null;
                   const isHovered = hoveredBranch === slice.branch;
+                  const innerR = isHovered ? 29 : 32.5;
+                  const outerR = isHovered ? 45.5 : 43.5;
+                  const pathD = describeDonutSlice(
+                    50,
+                    50,
+                    innerR,
+                    outerR,
+                    slice.startAngle,
+                    slice.endAngle
+                  );
 
                   return (
-                    <circle
+                    <path
                       key={`${chartId}-${slice.branch}`}
-                      cx="50"
-                      cy="50"
-                      r={RADIUS}
-                      stroke={slice.styling.fill}
-                      strokeWidth={isHovered ? 15 : 11}
-                      strokeDasharray={`${slice.strokeLength} ${slice.strokeRemaining}`}
-                      strokeDashoffset="0"
-                      fill="transparent"
-                      transform={`rotate(${slice.startAngle} 50 50)`}
-                      className="transition-all duration-300 cursor-pointer"
+                      d={pathD}
+                      fill={slice.styling.fill}
+                      stroke="#101012"
+                      strokeWidth="1.5"
+                      strokeLinejoin="round"
+                      className="transition-all duration-200 cursor-pointer"
                       onMouseEnter={() => setHoveredBranch(slice.branch)}
                       onMouseLeave={() => setHoveredBranch(null)}
                       style={{
-                        transformOrigin: '50px 50px',
                         filter: isHovered
-                          ? 'drop-shadow(0 0 6px rgba(255, 255, 255, 0.4))'
+                          ? 'drop-shadow(0 0 8px rgba(255, 255, 255, 0.6))'
                           : undefined,
                       }}
                     />
@@ -224,10 +273,10 @@ export function DepartmentPlacementPieChart({
                 <circle
                   cx="50"
                   cy="50"
-                  r={RADIUS}
+                  r="38"
                   stroke="#3f3f46"
                   strokeWidth="11"
-                  strokeDasharray="10 4"
+                  strokeDasharray="6 4"
                   fill="transparent"
                 />
               )}
@@ -237,11 +286,11 @@ export function DepartmentPlacementPieChart({
             <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none px-4">
               {activeSlice ? (
                 <>
-                  <span className="text-[11px] font-bold tracking-wider text-neutral-400 uppercase">
+                  <span className="text-[11px] font-bold tracking-wider text-neutral-300 uppercase">
                     {activeSlice.branch}
                   </span>
                   <span className="text-2xl font-black text-white font-mono mt-0.5">
-                    {activeSlice.placed}
+                    {activeSlice.placed} Placed
                   </span>
                   <span className="text-[10px] text-neutral-400 font-medium">
                     {activeSlice.sharePercentage}% of placements
@@ -282,7 +331,7 @@ export function DepartmentPlacementPieChart({
                   onMouseLeave={() => setHoveredBranch(null)}
                   className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
                     isHovered
-                      ? 'bg-neutral-800/90 border-white shadow-lg ring-1 ring-white/20'
+                      ? 'bg-neutral-800/90 border-white shadow-lg ring-1 ring-white/30'
                       : 'bg-neutral-900/70 border-neutral-800 hover:border-neutral-700 hover:bg-neutral-900'
                   }`}
                 >

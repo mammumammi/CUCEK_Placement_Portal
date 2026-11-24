@@ -13,7 +13,7 @@ import { eq, desc } from 'drizzle-orm';
 import { drives, applications, studentProfiles } from '@/core/db';
 import { defaultStorage } from '@/server/services/storage.service';
 import type { FileStorage } from '@/server/services/storage.service';
-import { createDriveSchema, updateRoundSchema, driveExtraFieldSchema } from './drives.schema';
+import { createDriveSchema, updateRoundSchema, driveExtraFieldSchema, updateDriveDetailsSchema } from './drives.schema';
 import {
   createDrive,
   listDrives,
@@ -21,6 +21,7 @@ import {
   getDriveJdFile,
   updateApplicationRound,
   getDriveStats,
+  updateDriveDetails,
 } from './drives.service';
 import {
   buildDriveExportWorkbook,
@@ -34,6 +35,7 @@ import {
 } from './export.service';
 import { summarizeJobDescription } from './jd-summarizer.service';
 import { notifyEligibleStudentsForDrive } from './mail.service';
+import { generateDriveMockOA } from '../assessments/assessments.service';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -433,6 +435,23 @@ export function createDrivesRouter(
     }
   );
 
+  // PATCH /api/drives/:driveId/details (Coordinators: update YouTube link, role, category, criteria)
+  router.patch(
+    '/:driveId/details',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR', 'BRANCH_COORDINATOR'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const driveId = Array.isArray(req.params.driveId) ? req.params.driveId[0] : req.params.driveId;
+        const body = updateDriveDetailsSchema.parse(req.body);
+        const updated = await updateDriveDetails(db, req.user!, driveId, body);
+        res.status(200).json(updated);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
   // GET /api/drives (All authenticated roles; includes open, and eligible+reasons for students)
   router.get(
     '/',
@@ -621,6 +640,72 @@ export function createDrivesRouter(
 
         const drive = await getDriveById(db, req.user!, driveId);
         res.status(200).json(drive);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // POST /api/drives/:driveId/mock-test-pdf (Super Admin uploads mock test reference PDF for a drive)
+  router.post(
+    '/:driveId/mock-test-pdf',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR'),
+    (req: Request, res: Response, next: NextFunction) => {
+      upload.any()(req, res, (err: unknown) => {
+        if (err) return next(err);
+        next();
+      });
+    },
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const driveId = Array.isArray(req.params.driveId)
+          ? req.params.driveId[0]
+          : req.params.driveId;
+
+        const [drive] = await db
+          .select()
+          .from(drives)
+          .where(eq(drives.id, driveId))
+          .limit(1);
+
+        if (!drive) {
+          throw new PortalError('NOT_FOUND', `Drive "${driveId}" not found`, 404);
+        }
+
+        const uploadedFiles: Express.Multer.File[] = [];
+        if (req.file) {
+          uploadedFiles.push(req.file);
+        } else if (Array.isArray(req.files) && req.files.length > 0) {
+          uploadedFiles.push(...(req.files as Express.Multer.File[]));
+        }
+
+        if (uploadedFiles.length === 0) {
+          throw new PortalError('VALIDATION_ERROR', 'No mock test PDF uploaded', 400);
+        }
+
+        const newPdfUrls: string[] = [];
+        for (const f of uploadedFiles) {
+          const saved = await storage.save(f.originalname, f.buffer, f.mimetype);
+          newPdfUrls.push(saved.url);
+        }
+
+        const existingUrls = drive.mockTestPdfUrls || [];
+        const mergedUrls = Array.from(new Set([...existingUrls, ...newPdfUrls]));
+
+        await db
+          .update(drives)
+          .set({ mockTestPdfUrls: mergedUrls })
+          .where(eq(drives.id, driveId));
+
+        // Trigger multi-agent regeneration to synthesize from the new mock test PDF
+        await generateDriveMockOA(db, driveId, { force: true });
+
+        res.status(200).json({
+          success: true,
+          message: `Mock test PDF attached and multi-agent assessment synthesized (${newPdfUrls.length} file(s)).`,
+          mockTestPdfUrls: mergedUrls,
+        });
       } catch (err) {
         next(err);
       }

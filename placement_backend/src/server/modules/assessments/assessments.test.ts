@@ -153,10 +153,13 @@ class Solution {
       expect(assessment).toBeDefined();
       expect(assessment.driveId).toBe(testDriveId);
       expect(assessment.company).toBe('Google');
-      expect(assessment.durationMinutes).toBe(60);
-      expect(assessment.totalQuestions).toBe(2);
+      expect(assessment.durationMinutes).toBe(90);
+      expect(assessment.totalQuestions).toBeGreaterThanOrEqual(5);
       expect(assessment.questions).toBeDefined();
-      expect(assessment.questions?.length).toBe(2);
+      expect(assessment.questions?.length).toBeGreaterThanOrEqual(5);
+      expect(assessment.mcqQuestions?.length).toBeGreaterThanOrEqual(30);
+      expect(assessment.dataProvenance).toBeDefined();
+      expect(assessment.dataProvenance?.totalRecordsMined).toBeGreaterThan(40000);
 
       // Verify question structure
       const q1 = assessment.questions![0];
@@ -192,7 +195,8 @@ class Solution {
       expect(res.status).toBe(200);
       expect(res.body.assessment).toBeDefined();
       expect(res.body.assessment.company).toBe('Google');
-      expect(res.body.assessment.questions).toHaveLength(2);
+      expect(res.body.assessment.questions).toHaveLength(5);
+      expect(res.body.assessment.mcqQuestions).toHaveLength(30);
     });
 
     it('executes sample code via POST /api/assessments/:assessmentId/run and returns Cloud Telemetry', async () => {
@@ -262,7 +266,7 @@ class Solution {
       expect(res.status).toBe(201);
       expect(res.body.submission).toBeDefined();
       expect(res.body.submission.score).toBeDefined();
-      expect(res.body.submission.totalQuestions).toBe(2);
+      expect(res.body.submission.totalQuestions).toBe(5);
       expect(res.body.submission.feedback).toBeDefined();
       expect(res.body.submission.feedback.percentileEstimate).toBeGreaterThanOrEqual(15);
 

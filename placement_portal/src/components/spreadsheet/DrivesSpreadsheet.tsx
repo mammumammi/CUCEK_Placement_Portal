@@ -132,7 +132,7 @@ export function DrivesSpreadsheet({
           aria-live="polite"
           className="flex items-center justify-center py-12"
         >
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-emerald-600 border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-white border-t-transparent" />
           <span className="sr-only">Loading spreadsheet...</span>
         </div>
       )}
@@ -140,13 +140,13 @@ export function DrivesSpreadsheet({
       {error && (
         <div
           role="alert"
-          className="rounded-md bg-red-50 p-4 border border-red-200 text-sm text-red-700 font-medium flex items-center justify-between"
+          className="rounded-xl bg-red-950/40 p-4 border border-red-800/60 text-xs text-red-300 font-medium flex items-center justify-between"
         >
           <span>{error}</span>
           <button
             type="button"
             onClick={() => void loadRows(true)}
-            className="text-indigo-600 underline font-semibold text-xs hover:text-indigo-800"
+            className="text-white underline font-semibold text-xs hover:text-neutral-300"
           >
             Retry
           </button>

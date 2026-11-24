@@ -92,4 +92,30 @@ export const completeProfileSchema = z
 
 export type CompleteProfileInput = z.infer<typeof completeProfileSchema>;
 
+export const createPlacedStudentManualSchema = z.object({
+  studentId: z.string().trim().min(1, 'Student ID is required'),
+  company: z.string().trim().min(1, 'Company name is required'),
+  role: z.string().trim().optional(),
+  ctcLpa: z.coerce.number().positive('CTC must be a positive number').optional().nullable(),
+  packageCategory: z.enum(['GENERAL', 'DREAM', 'INTERNSHIP']).optional().default('GENERAL'),
+  driveId: z.string().trim().optional().nullable(),
+});
+
+export type CreatePlacedStudentManualInput = z.infer<typeof createPlacedStudentManualSchema>;
+
+export const commitPlacedStudentsBatchSchema = z.object({
+  records: z.array(
+    z.object({
+      studentId: z.string().trim().min(1),
+      company: z.string().trim().min(1),
+      role: z.string().trim().optional(),
+      ctcLpa: z.coerce.number().positive().optional().nullable(),
+      packageCategory: z.enum(['GENERAL', 'DREAM', 'INTERNSHIP']).optional().default('GENERAL'),
+      driveId: z.string().trim().optional().nullable(),
+    })
+  ).min(1, 'At least one placement record is required'),
+});
+
+export type CommitPlacedStudentsBatchInput = z.infer<typeof commitPlacedStudentsBatchSchema>;
+
 

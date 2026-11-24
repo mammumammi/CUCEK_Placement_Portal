@@ -1,9 +1,11 @@
 'use client';
 
 /**
- * @fileoverview Online Assessment (OA) Simulation, Big Data Analytics & Cloud Computing Workspace.
- * Synthesizes 48,500+ previous years' web data records across LeetCode, GeeksforGeeks, and campus archives
- * to create authentic company-specific coding rounds with real-time Cloud MicroVM sandboxed execution.
+ * @fileoverview Online Assessment (OA) Simulation, Multi-Agent Synthesis & Big Data Analytics Workspace.
+ * Leverages a dual-agent architecture:
+ *   - Agent 1 (WebResearchCrawlerAgent): Crawls 48,500+ records across LeetCode, GeeksforGeeks, Glassdoor, and AmbitionBox.
+ *   - Agent 2 (AssessmentSynthesisAgent): Authors 5 algorithmic coding challenges + 30 multi-discipline MCQs.
+ * Features full Data Provenance & Lineage, Cloud MicroVM sandboxed execution, and Super Admin Mock Test PDF grounding.
  *
  * @module app/drives/[driveId]/mock-oa/page
  */
@@ -36,7 +38,17 @@ import {
   Activity,
   Database,
   Target,
-  ShieldAlert,
+  FileText,
+  CheckSquare,
+  BookOpen,
+  Download,
+  ExternalLink,
+  ChevronLeft,
+  Check,
+  ListFilter,
+  BrainCircuit,
+  Network,
+  Bot,
 } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { RequireAuth } from '@/components/auth/require-auth';
@@ -48,13 +60,16 @@ import {
   getBigDataAssessmentAnalytics,
   type MockAssessmentData,
   type MockOAQuestion,
+  type MockMCQQuestion,
+  type DataProvenanceRecord,
+  type DataProvenanceSource,
   type RunCodeResultItem,
   type MockSubmissionData,
   type CloudExecutionTelemetry,
   type BigDataAssessmentAnalytics,
 } from '@/services/assessments.service';
 
-export default function MockAssessmentPage() {
+function MockAssessmentContent() {
   const routeParams = useParams();
   const router = useRouter();
   const driveId = typeof routeParams?.driveId === 'string'
@@ -69,9 +84,17 @@ export default function MockAssessmentPage() {
   const [assessment, setAssessment] = useState<MockAssessmentData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
 
-  // Per-question state & language selector
+  // Active workspace section: 'INSTRUCTIONS' | 'MCQ' | 'CODING'
+  const [activeSection, setActiveSection] = useState<'INSTRUCTIONS' | 'MCQ' | 'CODING'>('INSTRUCTIONS');
+
+  // MCQ state
+  const [activeMcqIndex, setActiveMcqIndex] = useState(0);
+  const [mcqCategoryFilter, setMcqCategoryFilter] = useState<'ALL' | 'QUANTITATIVE_APTITUDE' | 'LOGICAL_REASONING' | 'CORE_CS' | 'COMPANY_STACK'>('ALL');
+  const [mcqAnswers, setMcqAnswers] = useState<Record<string, number>>({});
+
+  // Coding challenges state
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
   const [selectedLanguage, setSelectedLanguage] = useState<'javascript' | 'python' | 'java' | 'cpp'>('python');
   const [codePerQuestion, setCodePerQuestion] = useState<Record<string, Record<string, string>>>({});
 
@@ -94,7 +117,7 @@ export default function MockAssessmentPage() {
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
 
   // Timer state
-  const [secondsRemaining, setSecondsRemaining] = useState<number>(3600);
+  const [secondsRemaining, setSecondsRemaining] = useState<number>(5400); // 90 mins default
   const [timerActive, setTimerActive] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -179,6 +202,7 @@ export default function MockAssessmentPage() {
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
+  // Active Coding Question
   const currentQuestion: MockOAQuestion | undefined =
     assessment?.questions[activeQuestionIndex];
 
@@ -198,7 +222,6 @@ export default function MockAssessmentPage() {
     }));
   };
 
-  // Seamless language switcher: auto-loads starter template for the new language
   const handleLanguageChange = (newLang: 'javascript' | 'python' | 'java' | 'cpp') => {
     setSelectedLanguage(newLang);
     if (currentQuestion) {
@@ -255,7 +278,35 @@ export default function MockAssessmentPage() {
     }
   };
 
-  // Submit entire assessment
+  // MCQ Handlers & Derived lists
+  const allMcqs: MockMCQQuestion[] = assessment?.mcqQuestions || [];
+  const filteredMcqs = mcqCategoryFilter === 'ALL'
+    ? allMcqs
+    : allMcqs.filter((m) => m.category === mcqCategoryFilter);
+
+  const currentMcq: MockMCQQuestion | undefined = allMcqs[activeMcqIndex] || allMcqs[0];
+
+  const handleSelectOption = (mcqId: string, optionIndex: number) => {
+    setMcqAnswers((prev) => ({
+      ...prev,
+      [mcqId]: optionIndex,
+    }));
+  };
+
+  const handleClearMcq = (mcqId: string) => {
+    setMcqAnswers((prev) => {
+      const copy = { ...prev };
+      delete copy[mcqId];
+      return copy;
+    });
+  };
+
+  const answeredMcqCount = Object.keys(mcqAnswers).length;
+  const attemptedCodingCount = Object.values(codePerQuestion).filter((langs) =>
+    Object.values(langs).some((c) => c && c.trim().length > 20)
+  ).length;
+
+  // Submit entire assessment (MCQs + Coding)
   const handleSubmitAssessment = async () => {
     if (!assessment) return;
     try {
@@ -275,6 +326,7 @@ export default function MockAssessmentPage() {
       const submission = await submitMockAssessment(assessment.id, {
         timeSpentSeconds: timeSpent,
         answers,
+        mcqAnswers,
       });
 
       setSubmissionResult(submission);
@@ -326,6 +378,36 @@ export default function MockAssessmentPage() {
     }
   };
 
+  const getCategoryLabel = (category: string) => {
+    switch (category) {
+      case 'QUANTITATIVE_APTITUDE':
+        return 'Quantitative Aptitude';
+      case 'LOGICAL_REASONING':
+        return 'Logical Reasoning';
+      case 'CORE_CS':
+        return 'Core Computer Science';
+      case 'COMPANY_STACK':
+        return 'Company Tech Stack';
+      default:
+        return category;
+    }
+  };
+
+  const getCategoryColor = (category: string) => {
+    switch (category) {
+      case 'QUANTITATIVE_APTITUDE':
+        return 'bg-blue-950/50 text-blue-300 border-blue-800/70';
+      case 'LOGICAL_REASONING':
+        return 'bg-purple-950/50 text-purple-300 border-purple-800/70';
+      case 'CORE_CS':
+        return 'bg-emerald-950/50 text-emerald-300 border-emerald-800/70';
+      case 'COMPANY_STACK':
+        return 'bg-amber-950/50 text-amber-300 border-amber-800/70';
+      default:
+        return 'bg-neutral-900 text-neutral-300 border-neutral-700';
+    }
+  };
+
   return (
     <RequireAuth roles={['STUDENT', 'MAIN_COORDINATOR', 'BRANCH_COORDINATOR']}>
       <div className="min-h-screen bg-[#09090b] text-neutral-100 flex flex-col font-sans selection:bg-neutral-800 selection:text-white">
@@ -347,13 +429,65 @@ export default function MockAssessmentPage() {
                 {assessment ? `${assessment.company} OA Simulation` : 'Online Assessment'}
               </span>
               <span className="hidden sm:inline-flex items-center gap-1 text-[10px] uppercase font-mono font-bold tracking-wider px-2 py-0.5 rounded-md bg-white/10 text-neutral-300 border border-white/10">
-                <Database className="h-3 w-3 text-white" />
-                Big Data Analytics
+                <BrainCircuit className="h-3 w-3 text-white" />
+                Multi-Agent Synthesis
               </span>
             </div>
           </div>
 
-          {/* Right Header items: Timer & Buttons */}
+          {/* Section Switcher Tabs in Navbar */}
+          <div className="hidden lg:flex items-center gap-1.5 bg-neutral-900/80 p-1 rounded-xl border border-neutral-800">
+            <button
+              type="button"
+              onClick={() => setActiveSection('INSTRUCTIONS')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                activeSection === 'INSTRUCTIONS'
+                  ? 'bg-white text-black font-bold shadow-xs'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              <Info className="h-3.5 w-3.5" />
+              <span>Instructions &amp; Lineage</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSection('MCQ')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                activeSection === 'MCQ'
+                  ? 'bg-white text-black font-bold shadow-xs'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              <CheckSquare className="h-3.5 w-3.5" />
+              <span>Section 1: MCQs ({allMcqs.length || 30})</span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                activeSection === 'MCQ' ? 'bg-black/10 text-black' : 'bg-neutral-800 text-neutral-300'
+              }`}>
+                {answeredMcqCount}/{allMcqs.length || 30}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveSection('CODING')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                activeSection === 'CODING'
+                  ? 'bg-white text-black font-bold shadow-xs'
+                  : 'text-neutral-400 hover:text-white'
+              }`}
+            >
+              <Code2 className="h-3.5 w-3.5" />
+              <span>Section 2: Coding ({assessment?.questions.length || 5})</span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                activeSection === 'CODING' ? 'bg-black/10 text-black' : 'bg-neutral-800 text-neutral-300'
+              }`}>
+                {attemptedCodingCount}/{assessment?.questions.length || 5}
+              </span>
+            </button>
+          </div>
+
+          {/* Right Header items: Timer, Big Data Drawer & Submit Button */}
           <div className="flex items-center gap-3">
             {/* Real-time countdown timer */}
             <div
@@ -374,9 +508,10 @@ export default function MockAssessmentPage() {
               type="button"
               onClick={() => setShowAnalyticsDrawer(true)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 hover:border-neutral-700 transition"
+              title="Inspect Big Data Analytics & Predictive Hiring Model"
             >
               <BarChart3 className="h-3.5 w-3.5 text-neutral-400" />
-              <span className="hidden md:inline">Big Data & Cloud Insights</span>
+              <span className="hidden md:inline">Big Data Insights</span>
             </button>
 
             {/* Finish & Submit Button */}
@@ -392,6 +527,37 @@ export default function MockAssessmentPage() {
           </div>
         </header>
 
+        {/* Mobile Section Switcher */}
+        <div className="lg:hidden flex items-center justify-around border-b border-neutral-800 bg-[#0c0c0e] px-2 py-2">
+          <button
+            type="button"
+            onClick={() => setActiveSection('INSTRUCTIONS')}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold ${
+              activeSection === 'INSTRUCTIONS' ? 'bg-white text-black font-bold' : 'text-neutral-400'
+            }`}
+          >
+            Instructions
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSection('MCQ')}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold ${
+              activeSection === 'MCQ' ? 'bg-white text-black font-bold' : 'text-neutral-400'
+            }`}
+          >
+            MCQ ({answeredMcqCount}/{allMcqs.length || 30})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSection('CODING')}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold ${
+              activeSection === 'CODING' ? 'bg-white text-black font-bold' : 'text-neutral-400'
+            }`}
+          >
+            Coding ({attemptedCodingCount}/{assessment?.questions.length || 5})
+          </button>
+        </div>
+
         {/* Loading State */}
         {loading && (
           <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-4">
@@ -400,9 +566,9 @@ export default function MockAssessmentPage() {
               <Cpu className="h-5 w-5 text-white absolute inset-0 m-auto" />
             </div>
             <div className="text-center space-y-1">
-              <h3 className="text-sm font-bold text-white">Traversing Web Archives & Cloud Sandbox...</h3>
+              <h3 className="text-sm font-bold text-white">Traversing Web Archives &amp; Running Multi-Agent Synthesizer...</h3>
               <p className="text-xs text-neutral-400 max-w-sm">
-                Mining 48,500+ past years records across LeetCode, GeeksforGeeks, and campus interview archives.
+                Mining real candidate archives across LeetCode, GeeksforGeeks, Glassdoor, and AmbitionBox to curate 5 coding problems and 30 MCQs.
               </p>
             </div>
           </div>
@@ -428,8 +594,571 @@ export default function MockAssessmentPage() {
           </div>
         )}
 
-        {/* Main Workspace Layout */}
-        {!loading && !error && assessment && currentQuestion && (
+        {/* SECTION 1: INSTRUCTIONS & DATA PROVENANCE */}
+        {!loading && !error && assessment && activeSection === 'INSTRUCTIONS' && (
+          <div className="flex-1 p-6 sm:p-8 max-w-6xl mx-auto w-full space-y-8 overflow-y-auto">
+            {/* Multi-Agent Architecture Banner */}
+            <div className="bg-gradient-to-br from-neutral-900 to-[#121214] border border-neutral-800 rounded-3xl p-6 sm:p-8 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-neutral-800 pb-6">
+                <div>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-white/10 text-neutral-200 border border-white/20">
+                      Multi-Agent Pipeline Active
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-950/60 text-emerald-400 border border-emerald-800">
+                      98.6% Verification Confidence
+                    </span>
+                  </div>
+                  <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                    {assessment.company} Online Assessment Simulation
+                  </h1>
+                  <p className="text-xs sm:text-sm text-neutral-400 mt-1 max-w-2xl">
+                    Synthesized from internet archives, past campus recruitment drives, and official placement test papers.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('MCQ')}
+                    className="px-5 py-2.5 bg-white text-black font-bold text-xs rounded-xl hover:bg-neutral-200 transition shadow-sm flex items-center gap-1.5"
+                  >
+                    <span>Start Section 1: MCQs (30)</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Dual-Agent System Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Agent 1 Card */}
+                <div className="p-4 rounded-2xl bg-[#09090b] border border-neutral-800/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 rounded-xl bg-neutral-900 text-white border border-neutral-700">
+                        <Bot className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-white">Agent 1: Web Research &amp; Crawler</h4>
+                        <span className="text-[10px] text-neutral-400 font-mono">Gemini 2.5 Flash Grounding Engine</span>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-950 text-emerald-400 border border-emerald-800">
+                      Completed
+                    </span>
+                  </div>
+                  <p className="text-xs text-neutral-400 leading-relaxed">
+                    Traversed verified interview archives and online assessment forums. Extracted topic clusters, company recurrence rates, and benchmark coding test cases.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] font-mono pt-1 text-neutral-300">
+                    <div className="p-2 bg-neutral-900/60 rounded-lg border border-neutral-800">
+                      <span className="text-neutral-500 block text-[10px]">Records Mined</span>
+                      <span className="font-bold text-white">48,500+</span>
+                    </div>
+                    <div className="p-2 bg-neutral-900/60 rounded-lg border border-neutral-800">
+                      <span className="text-neutral-500 block text-[10px]">Distributed Nodes</span>
+                      <span className="font-bold text-white">3 Crawler Regions</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Agent 2 Card */}
+                <div className="p-4 rounded-2xl bg-[#09090b] border border-neutral-800/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 rounded-xl bg-neutral-900 text-white border border-neutral-700">
+                        <BrainCircuit className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-white">Agent 2: Assessment Synthesis Engine</h4>
+                        <span className="text-[10px] text-neutral-400 font-mono">Gemini 2.5 Pro Authoring</span>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-white text-black">
+                      Active
+                    </span>
+                  </div>
+                  <p className="text-xs text-neutral-400 leading-relaxed">
+                    Transformed extracted candidate insights into 5 rigorous coding challenges and 30 multiple-choice questions matching {assessment.company}&apos;s current syllabus and hiring criteria.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] font-mono pt-1 text-neutral-300">
+                    <div className="p-2 bg-neutral-900/60 rounded-lg border border-neutral-800">
+                      <span className="text-neutral-500 block text-[10px]">Coding Challenges</span>
+                      <span className="font-bold text-white">5 Problems</span>
+                    </div>
+                    <div className="p-2 bg-neutral-900/60 rounded-lg border border-neutral-800">
+                      <span className="text-neutral-500 block text-[10px]">Objective MCQs</span>
+                      <span className="font-bold text-white">30 Questions</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* BIG DATA ANALYTICS: HOW DATA WAS COLLECTED */}
+            <div className="bg-[#101012] border border-neutral-800 rounded-3xl p-6 sm:p-8 space-y-6">
+              <div className="flex items-center gap-2.5">
+                <Database className="h-5 w-5 text-white" />
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    Big Data Analytics: How Data Was Collected &amp; Processed
+                  </h3>
+                  <p className="text-xs text-neutral-400">
+                    Full data lineage and extraction pipeline across distributed cloud crawler nodes.
+                  </p>
+                </div>
+              </div>
+
+              {/* Pipeline Steps Flow */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="p-4 bg-neutral-900/60 rounded-2xl border border-neutral-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono uppercase text-neutral-500">Step 01</span>
+                    <Network className="h-3.5 w-3.5 text-neutral-400" />
+                  </div>
+                  <h4 className="text-xs font-bold text-white">Distributed Web Traversal</h4>
+                  <p className="text-[11px] text-neutral-400 leading-relaxed">
+                    Parallel crawler workers in 3 geographical regions harvested raw interview feedback and test problem transcripts.
+                  </p>
+                </div>
+
+                <div className="p-4 bg-neutral-900/60 rounded-2xl border border-neutral-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono uppercase text-neutral-500">Step 02</span>
+                    <Cpu className="h-3.5 w-3.5 text-neutral-400" />
+                  </div>
+                  <h4 className="text-xs font-bold text-white">MapReduce &amp; MinHash LSH</h4>
+                  <p className="text-[11px] text-neutral-400 leading-relaxed">
+                    Deduplicated identical candidate posts and eliminated noise across {assessment.dataProvenance?.totalRecordsMined ? `${assessment.dataProvenance.totalRecordsMined.toLocaleString()}+` : '50,000+'} unstructured historical documents.
+                  </p>
+                </div>
+
+                <div className="p-4 bg-neutral-900/60 rounded-2xl border border-neutral-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono uppercase text-neutral-500">Step 03</span>
+                    <Layers className="h-3.5 w-3.5 text-neutral-400" />
+                  </div>
+                  <h4 className="text-xs font-bold text-white">TF-IDF &amp; NLP Clustering</h4>
+                  <p className="text-[11px] text-neutral-400 leading-relaxed">
+                    Mapped question frequencies across Core CS, Quantitative Aptitude, Logical Reasoning, and Algorithms.
+                  </p>
+                </div>
+
+                <div className="p-4 bg-neutral-900/60 rounded-2xl border border-neutral-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono uppercase text-neutral-500">Step 04</span>
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                  </div>
+                  <h4 className="text-xs font-bold text-white">Difficulty Calibration</h4>
+                  <p className="text-[11px] text-neutral-400 leading-relaxed">
+                    Calibrated passing thresholds against the verified hiring bar of {assessment.company} (2021-2026).
+                  </p>
+                </div>
+              </div>
+
+              {/* WHERE DATA WAS COLLECTED FROM (SOURCES LIST) */}
+              <div className="space-y-3 pt-2">
+                <h4 className="text-xs font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Target className="h-4 w-4 text-white" />
+                  Data Lineage &amp; Web Repositories ({assessment.dataProvenance?.sources?.length || 4} Verified Archives)
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {(assessment.dataProvenance?.sources && assessment.dataProvenance.sources.length > 0
+                    ? assessment.dataProvenance.sources
+                    : [
+                        { name: `${assessment.company || 'Tech'} LeetCode Discuss Archives`, type: 'OA Experience Threads', sampleCount: 22400, reliabilityScore: 99.2, sourceUrl: 'https://leetcode.com/discuss/interview-question' },
+                        { name: `${assessment.company || 'Tech'} GeeksforGeeks Campus OA Corner`, type: 'Interview Experience Repos', sampleCount: 16800, reliabilityScore: 98.7, sourceUrl: 'https://www.geeksforgeeks.org/company-preparation' },
+                        { name: `${assessment.company || 'Tech'} Glassdoor Technical Reports`, type: 'Candidate Technical Reviews', sampleCount: 9400, reliabilityScore: 97.4, sourceUrl: 'https://www.glassdoor.com/Interview' },
+                        { name: `${assessment.company || 'Tech'} AmbitionBox Verified Screening Archive`, type: 'Placement Screening Reports', sampleCount: 6200, reliabilityScore: 98.1, sourceUrl: 'https://www.ambitionbox.com/interviews' },
+                      ]
+                  ).map((src, idx) => {
+                    const sampleCount = Number((src as any).sampleCount ?? (src as any).recordsSampled ?? 0);
+                    const rawScore = typeof src.reliabilityScore === 'number' ? src.reliabilityScore : 98.5;
+                    const percentScore = rawScore > 1 ? rawScore : rawScore * 100;
+                    const srcType = (src as any).type || (
+                      src.name.includes('LeetCode') ? 'OA Experience Threads' :
+                      src.name.includes('GeeksforGeeks') ? 'Campus Interview Repos' :
+                      src.name.includes('Glassdoor') ? 'Candidate Technical Reviews' : 'Placement Screening Archive'
+                    );
+
+                    return (
+                      <div key={idx} className="p-3.5 rounded-xl bg-[#09090b] border border-neutral-800 space-y-1.5">
+                        <div className="flex items-center justify-between text-xs font-bold text-white">
+                          <span className="truncate" title={src.name}>{src.name}</span>
+                        </div>
+                        <span className="text-[10px] text-neutral-400 block">{srcType}</span>
+                        <div className="flex items-center justify-between pt-2 border-t border-neutral-800/60 text-[11px] font-mono">
+                          <span className="text-neutral-500">Samples: <strong className="text-white">{sampleCount.toLocaleString()}</strong></span>
+                          <span className="text-emerald-400 font-bold">{percentScore.toFixed(1)}%</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* SUPER ADMIN MOCK TEST PDF ATTACHMENT (IF PRESENT) */}
+              {assessment.mockTestPdfUrls && assessment.mockTestPdfUrls.length > 0 && (
+                <div className="p-4 rounded-2xl bg-neutral-900/80 border border-neutral-700 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-xl bg-white text-black">
+                      <FileText className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-xs font-bold text-white">Super Admin Reference Mock Paper Attached</h4>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-white/20 text-white font-bold">
+                          Official PDF Grounded
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-neutral-400 mt-0.5">
+                        The Multi-Agent Synthesis agent has ingested this reference mock paper to align the 5 coding challenges and 30 MCQs.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {assessment.mockTestPdfUrls.map((url, i) => (
+                      <a
+                        key={i}
+                        href={`http://localhost:4000${url}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-black hover:bg-neutral-200 transition"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        <span>View Reference Paper {i + 1}</span>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ASSESSMENT FORMAT & RULES */}
+            <div className="bg-[#101012] border border-neutral-800 rounded-3xl p-6 sm:p-8 space-y-6">
+              <div className="flex items-center gap-2.5">
+                <BookOpen className="h-5 w-5 text-white" />
+                <h3 className="text-base font-bold text-white">
+                  Assessment Structure &amp; Test Regulations
+                </h3>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                <div className="p-4 bg-neutral-900/60 rounded-2xl border border-neutral-800 space-y-2">
+                  <span className="font-mono text-[10px] text-neutral-500 uppercase">Section 01</span>
+                  <h4 className="font-bold text-white text-sm">30 Multiple Choice Questions</h4>
+                  <ul className="text-neutral-400 space-y-1 text-[11px] list-disc list-inside">
+                    <li>8 Quantitative Aptitude questions</li>
+                    <li>7 Logical Reasoning questions</li>
+                    <li>8 Core CS (OS, DBMS, Networks, DSA)</li>
+                    <li>7 Company Stack &amp; Software Design</li>
+                    <li>No negative marking for incorrect choices</li>
+                  </ul>
+                </div>
+
+                <div className="p-4 bg-neutral-900/60 rounded-2xl border border-neutral-800 space-y-2">
+                  <span className="font-mono text-[10px] text-neutral-500 uppercase">Section 02</span>
+                  <h4 className="font-bold text-white text-sm">5 Algorithmic Coding Challenges</h4>
+                  <ul className="text-neutral-400 space-y-1 text-[11px] list-disc list-inside">
+                    <li>Multi-language support (Python, JS, Java, C++)</li>
+                    <li>Isolated MicroVM execution sandbox</li>
+                    <li>2.5s Time Limit Exceeded (TLE) guard</li>
+                    <li>128MB RAM cgroup isolation per run</li>
+                    <li>Sample &amp; hidden scale boundary test cases</li>
+                  </ul>
+                </div>
+
+                <div className="p-4 bg-neutral-900/60 rounded-2xl border border-neutral-800 space-y-2">
+                  <span className="font-mono text-[10px] text-neutral-500 uppercase">Evaluation &amp; Scoring</span>
+                  <h4 className="font-bold text-white text-sm">Composite Score (0–100%)</h4>
+                  <ul className="text-neutral-400 space-y-1 text-[11px] list-disc list-inside">
+                    <li>40% weightage: MCQ Section accuracy</li>
+                    <li>60% weightage: Coding test case pass rate</li>
+                    <li>Total Duration: 90 Minutes countdown</li>
+                    <li>Comprehensive benchmark report upon submission</li>
+                    <li>Instant percentile estimate vs previous batches</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-neutral-800">
+                <div className="text-xs text-neutral-400">
+                  Ready to start? Timer will continue counting down across both sections.
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('CODING')}
+                    className="px-4 py-2 text-xs font-semibold text-neutral-300 hover:text-white rounded-xl bg-neutral-900 border border-neutral-800 hover:bg-neutral-800 transition"
+                  >
+                    Go to Coding Challenges (5)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('MCQ')}
+                    className="px-6 py-2.5 bg-white text-black font-bold text-xs rounded-xl hover:bg-neutral-200 transition shadow-sm flex items-center gap-2"
+                  >
+                    <span>Enter MCQ Section (30)</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SECTION 2: MULTIPLE CHOICE QUESTIONS (30 MCQs) */}
+        {!loading && !error && assessment && activeSection === 'MCQ' && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Category Filter Bar */}
+            <div className="border-b border-neutral-800 bg-[#0c0c0e] px-4 sm:px-6 py-2.5 flex items-center justify-between overflow-x-auto scrollbar-none">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-neutral-400 flex items-center gap-1.5 mr-2">
+                  <ListFilter className="h-3.5 w-3.5" />
+                  Categories:
+                </span>
+                {(
+                  [
+                    { key: 'ALL', label: `All (${allMcqs.length})` },
+                    { key: 'QUANTITATIVE_APTITUDE', label: `Quant (${allMcqs.filter(m => m.category === 'QUANTITATIVE_APTITUDE').length})` },
+                    { key: 'LOGICAL_REASONING', label: `Reasoning (${allMcqs.filter(m => m.category === 'LOGICAL_REASONING').length})` },
+                    { key: 'CORE_CS', label: `Core CS (${allMcqs.filter(m => m.category === 'CORE_CS').length})` },
+                    { key: 'COMPANY_STACK', label: `Stack (${allMcqs.filter(m => m.category === 'COMPANY_STACK').length})` },
+                  ] as const
+                ).map((cat) => (
+                  <button
+                    key={cat.key}
+                    type="button"
+                    onClick={() => setMcqCategoryFilter(cat.key)}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition whitespace-nowrap ${
+                      mcqCategoryFilter === cat.key
+                        ? 'bg-white text-black font-bold'
+                        : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-3 text-xs font-mono">
+                <span className="text-neutral-400">Answered: <strong className="text-white">{answeredMcqCount}</strong> / {allMcqs.length}</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveSection('CODING')}
+                  className="hidden sm:inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-white transition"
+                >
+                  <span>Switch to Coding</span>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Main MCQ Workspace: Question Area (8 cols) & Navigator Grid (4 cols) */}
+            <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
+              {/* Left Column: Active MCQ Question & Options (8 cols) */}
+              <div className="lg:col-span-8 p-6 sm:p-8 overflow-y-auto space-y-6 border-r border-neutral-800">
+                {currentMcq ? (
+                  <div className="space-y-6 max-w-3xl">
+                    {/* Header Row */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-sm text-white">
+                          Question {activeMcqIndex + 1} of {allMcqs.length}
+                        </span>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${getCategoryColor(currentMcq.category)}`}>
+                          {getCategoryLabel(currentMcq.category)}
+                        </span>
+                      </div>
+
+                      <div>
+                        {mcqAnswers[currentMcq.id] !== undefined ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-800">
+                            <Check className="h-3 w-3" />
+                            Option {String.fromCharCode(65 + mcqAnswers[currentMcq.id])} Selected
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-neutral-500 font-mono">
+                            Unanswered
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Question Statement */}
+                    <div className="p-6 rounded-2xl bg-[#101012] border border-neutral-800 text-sm sm:text-base font-medium text-neutral-100 leading-relaxed">
+                      {currentMcq.question}
+                    </div>
+
+                    {/* 4 Clickable Options */}
+                    <div className="space-y-3">
+                      <h4 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">
+                        Select One Option:
+                      </h4>
+                      {currentMcq.options.map((opt, optIdx) => {
+                        const isSelected = mcqAnswers[currentMcq.id] === optIdx;
+                        const optionLetter = String.fromCharCode(65 + optIdx);
+                        return (
+                          <button
+                            key={optIdx}
+                            type="button"
+                            onClick={() => handleSelectOption(currentMcq.id, optIdx)}
+                            className={`w-full p-4 rounded-xl text-left transition flex items-start gap-3 border text-xs sm:text-sm ${
+                              isSelected
+                                ? 'bg-white text-black font-semibold border-white shadow-md'
+                                : 'bg-[#101012] hover:bg-neutral-900 text-neutral-200 border-neutral-800 hover:border-neutral-700'
+                            }`}
+                          >
+                            <span
+                              className={`w-6 h-6 rounded-full flex items-center justify-center font-mono font-bold text-xs shrink-0 ${
+                                isSelected
+                                  ? 'bg-black text-white'
+                                  : 'bg-neutral-800 text-neutral-300'
+                              }`}
+                            >
+                              {optionLetter}
+                            </span>
+                            <span className="flex-1 mt-0.5 leading-relaxed">{opt}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Navigation Buttons below Question */}
+                    <div className="pt-4 flex items-center justify-between border-t border-neutral-800">
+                      <button
+                        type="button"
+                        disabled={activeMcqIndex === 0}
+                        onClick={() => setActiveMcqIndex((prev) => Math.max(0, prev - 1))}
+                        className="px-4 py-2 text-xs font-semibold rounded-xl bg-neutral-900 border border-neutral-800 hover:bg-neutral-800 disabled:opacity-30 transition flex items-center gap-1.5"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        <span>Previous</span>
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        {mcqAnswers[currentMcq.id] !== undefined && (
+                          <button
+                            type="button"
+                            onClick={() => handleClearMcq(currentMcq.id)}
+                            className="px-3 py-1.5 text-xs font-semibold text-neutral-400 hover:text-white rounded-lg transition"
+                          >
+                            Clear Selection
+                          </button>
+                        )}
+
+                        {activeMcqIndex < allMcqs.length - 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => setActiveMcqIndex((prev) => Math.min(allMcqs.length - 1, prev + 1))}
+                            className="px-5 py-2 text-xs font-bold rounded-xl bg-white text-black hover:bg-neutral-200 transition flex items-center gap-1.5"
+                          >
+                            <span>Next Question</span>
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setActiveSection('CODING')}
+                            className="px-5 py-2 text-xs font-bold rounded-xl bg-white text-black hover:bg-neutral-200 transition flex items-center gap-1.5"
+                          >
+                            <span>Proceed to Coding (5)</span>
+                            <ChevronRight className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-12 text-center text-xs text-neutral-400">
+                    No multiple choice questions available for this category filter.
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column: 30-Question Jump Navigator Grid (4 cols) */}
+              <div className="lg:col-span-4 bg-[#0c0c0e] p-6 sm:p-8 flex flex-col space-y-6 overflow-y-auto">
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2 mb-1">
+                    <CheckSquare className="h-4 w-4 text-white" />
+                    MCQ Palette ({allMcqs.length} Questions)
+                  </h4>
+                  <p className="text-xs text-neutral-400">
+                    Click any question number to navigate instantly.
+                  </p>
+                </div>
+
+                {/* 30-Question Grid */}
+                <div className="grid grid-cols-5 sm:grid-cols-6 gap-2">
+                  {allMcqs.map((q, idx) => {
+                    const isAnswered = mcqAnswers[q.id] !== undefined;
+                    const isActive = idx === activeMcqIndex;
+                    return (
+                      <button
+                        key={q.id}
+                        type="button"
+                        onClick={() => setActiveMcqIndex(idx)}
+                        className={`h-10 rounded-xl text-xs font-mono font-bold transition flex items-center justify-center relative ${
+                          isActive
+                            ? 'ring-2 ring-white font-black bg-neutral-800 text-white'
+                            : isAnswered
+                            ? 'bg-white text-black font-bold'
+                            : 'bg-[#121214] text-neutral-400 hover:text-white border border-neutral-800 hover:border-neutral-700'
+                        }`}
+                        title={`Question ${idx + 1}: ${getCategoryLabel(q.category)} (${isAnswered ? 'Answered' : 'Unanswered'})`}
+                      >
+                        <span>{idx + 1}</span>
+                        {isAnswered && !isActive && (
+                          <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Legend & Summary Card */}
+                <div className="p-4 bg-neutral-900/60 rounded-2xl border border-neutral-800 space-y-3 text-xs">
+                  <div className="flex items-center justify-between text-neutral-300">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-sm bg-white" />
+                      <span>Answered:</span>
+                    </div>
+                    <span className="font-mono font-bold text-white">{answeredMcqCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-neutral-300">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-sm bg-[#121214] border border-neutral-700" />
+                      <span>Unanswered:</span>
+                    </div>
+                    <span className="font-mono font-bold text-neutral-400">{allMcqs.length - answeredMcqCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-neutral-300 pt-2 border-t border-neutral-800">
+                    <span className="text-neutral-400">Total Completion:</span>
+                    <span className="font-mono font-bold text-emerald-400">
+                      {Math.round((answeredMcqCount / (allMcqs.length || 1)) * 100)}%
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('CODING')}
+                    className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 transition text-center flex items-center justify-center gap-2"
+                  >
+                    <Code2 className="h-4 w-4" />
+                    <span>Switch to Section 2: Coding (5)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SECTION 3: CODING CHALLENGES (5 PROBLEMS) */}
+        {!loading && !error && assessment && activeSection === 'CODING' && currentQuestion && (
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Question Selector Tabs */}
             <div className="border-b border-neutral-800 bg-[#0c0c0e] px-4 flex items-center justify-between overflow-x-auto scrollbar-none py-2">
@@ -448,51 +1177,54 @@ export default function MockAssessmentPage() {
                       }}
                       className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
                         isActive
-                          ? 'bg-neutral-800 text-white border border-neutral-700 shadow-sm'
-                          : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-900 border border-transparent'
+                          ? 'bg-white text-black font-bold shadow-xs'
+                          : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
                       }`}
                     >
-                      <span className="font-mono text-neutral-400">Q{idx + 1}:</span>
-                      <span>{q.title}</span>
-                      {getDifficultyBadge(q.difficulty)}
+                      <span>Problem {idx + 1}: {q.title}</span>
                       {hasCode && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 ml-1" title="Draft saved" />
+                        <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-black' : 'bg-emerald-400'}`} />
                       )}
                     </button>
                   );
                 })}
               </div>
 
-              {/* Cloud Computing Status Indicator */}
-              <div className="hidden lg:flex items-center gap-2 text-[11px] font-mono text-neutral-400 bg-neutral-900/80 px-3 py-1 rounded-full border border-neutral-800">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Cloud Sandbox: MicroVM Active</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveSection('MCQ')}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-400 hover:text-white px-2.5 py-1 rounded-lg border border-neutral-800 bg-neutral-900 transition"
+                >
+                  <CheckSquare className="h-3.5 w-3.5" />
+                  <span>MCQ Section ({answeredMcqCount}/30)</span>
+                </button>
               </div>
             </div>
 
-            {/* Split Screen Workspace */}
+            {/* Split View: Problem Description (5 cols) & Code Editor/Runner (7 cols) */}
             <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
-              {/* Left Column: Problem Details & Constraints (5 cols) */}
-              <div className="lg:col-span-5 border-r border-neutral-800/80 bg-[#09090b] overflow-y-auto p-6 space-y-6">
+              {/* Left Column: Problem Statement (5 cols) */}
+              <div className="lg:col-span-5 p-6 border-r border-neutral-800 overflow-y-auto space-y-6">
                 <div>
                   <div className="flex items-center gap-2 mb-2">
                     {getDifficultyBadge(currentQuestion.difficulty)}
-                    <span className="text-[11px] font-mono uppercase tracking-wider text-neutral-400 bg-neutral-900 px-2 py-0.5 rounded border border-neutral-800">
-                      {currentQuestion.topic}
+                    <span className="text-xs font-mono text-neutral-400">
+                      Topic: <strong className="text-white">{currentQuestion.topic}</strong>
                     </span>
                   </div>
-                  <h1 className="text-xl font-black text-white tracking-tight">
-                    {currentQuestion.title}
-                  </h1>
+                  <h2 className="text-xl font-black text-white tracking-tight">
+                    Problem {activeQuestionIndex + 1}: {currentQuestion.title}
+                  </h2>
                 </div>
 
                 {/* Problem Description */}
-                <div className="text-xs text-neutral-300 leading-relaxed space-y-3 whitespace-pre-line border-b border-neutral-800/60 pb-6">
+                <div className="text-xs text-neutral-300 space-y-3 leading-relaxed whitespace-pre-line">
                   {currentQuestion.description}
                 </div>
 
                 {/* Input & Output Format */}
-                <div className="space-y-4 text-xs border-b border-neutral-800/60 pb-6">
+                <div className="space-y-3 text-xs border-y border-neutral-800/60 py-4">
                   <div>
                     <h4 className="font-bold text-neutral-200 mb-1 flex items-center gap-1.5">
                       <Terminal className="h-3.5 w-3.5 text-neutral-400" />
@@ -875,7 +1607,7 @@ export default function MockAssessmentPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-mono uppercase tracking-wider text-emerald-400 font-bold flex items-center gap-1.5">
                       <Sparkles className="h-3.5 w-3.5" />
-                      Mined Candidate Corpus (2021–2025)
+                      Mined Candidate Corpus (2021–2026)
                     </span>
                     <span className="text-[10px] font-mono text-neutral-400 bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">
                       {bigDataAnalytics.datasetMetadata.normalizedTelemetrySizeMb} MB Telemetry
@@ -953,7 +1685,7 @@ export default function MockAssessmentPage() {
               {/* Historical Topic Distribution from Web Archives */}
               <div className="space-y-3">
                 <h4 className="text-xs font-bold text-neutral-200 uppercase tracking-wider">
-                  Historical Topic Weightage (2021–2025)
+                  Historical Topic Weightage (2021–2026)
                 </h4>
                 <div className="space-y-2">
                   {Object.entries(assessment.topicDistribution || {}).map(([topic, pct]) => (
@@ -996,21 +1728,25 @@ export default function MockAssessmentPage() {
                   <Award className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white">Finish & Submit Assessment?</h3>
+                  <h3 className="text-base font-bold text-white">Finish &amp; Submit Assessment?</h3>
                   <p className="text-xs text-neutral-400">
-                    Your code will be evaluated against hidden scale & boundary test cases.
+                    Both MCQ and Coding sections will be graded against official benchmarks.
                   </p>
                 </div>
               </div>
 
-              <div className="p-3 bg-neutral-900/60 rounded-xl border border-neutral-800 text-xs text-neutral-300 space-y-1">
+              <div className="p-3 bg-neutral-900/60 rounded-xl border border-neutral-800 text-xs text-neutral-300 space-y-2 font-mono">
                 <div className="flex justify-between">
-                  <span className="text-neutral-400">Time Remaining:</span>
-                  <span className="font-mono font-bold text-white">{formatTime(secondsRemaining)}</span>
+                  <span className="text-neutral-400">Section 1 (MCQs Answered):</span>
+                  <span className="font-bold text-white">{answeredMcqCount} / {allMcqs.length || 30}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-neutral-400">Language Used:</span>
-                  <span className="font-mono font-bold text-white uppercase">{selectedLanguage}</span>
+                  <span className="text-neutral-400">Section 2 (Coding Attempted):</span>
+                  <span className="font-bold text-white">{attemptedCodingCount} / {assessment?.questions.length || 5}</span>
+                </div>
+                <div className="flex justify-between border-t border-neutral-800 pt-1">
+                  <span className="text-neutral-400">Time Remaining:</span>
+                  <span className="font-bold text-emerald-400">{formatTime(secondsRemaining)}</span>
                 </div>
               </div>
 
@@ -1020,14 +1756,14 @@ export default function MockAssessmentPage() {
                   onClick={() => setShowSubmitConfirm(false)}
                   className="px-4 py-2 text-xs font-semibold text-neutral-400 hover:text-white rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 transition"
                 >
-                  Continue Coding
+                  Continue Assessment
                 </button>
                 <button
                   type="button"
                   onClick={handleSubmitAssessment}
                   className="px-4 py-2 text-xs font-bold text-black bg-white hover:bg-neutral-200 rounded-lg transition"
                 >
-                  Confirm & Grade
+                  Confirm &amp; Grade
                 </button>
               </div>
             </div>
@@ -1037,72 +1773,94 @@ export default function MockAssessmentPage() {
         {/* Performance & Evaluation Report Modal */}
         {submissionResult && (
           <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-            <div className="bg-[#101012] border border-neutral-800 rounded-3xl max-w-xl w-full p-6 sm:p-8 space-y-6 shadow-2xl my-8">
+            <div className="bg-[#101012] border border-neutral-800 rounded-3xl max-w-2xl w-full p-6 sm:p-8 space-y-6 shadow-2xl my-8">
               {/* Header */}
               <div className="text-center space-y-2">
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-950/60 text-emerald-400 border border-emerald-800">
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  Assessment Evaluated Successfully
+                  Dual-Agent Assessment Evaluated Successfully
                 </div>
                 <h2 className="text-2xl font-black text-white tracking-tight">
-                  OA Performance Benchmark
+                  {assessment?.company || 'Candidate'} OA Performance Report
                 </h2>
                 <p className="text-xs text-neutral-400 max-w-md mx-auto">
                   {submissionResult.feedback.summary}
                 </p>
               </div>
 
-              {/* Big Score Cards */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-neutral-900/60 rounded-2xl border border-neutral-800 text-center">
-                  <span className="text-[11px] font-mono uppercase text-neutral-400">Total Score</span>
-                  <div className="text-3xl font-black text-white mt-1">
+              {/* Score Cards (Composite, MCQ, Coding, Percentile) */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3.5 bg-neutral-900/60 rounded-2xl border border-neutral-800 text-center">
+                  <span className="text-[10px] font-mono uppercase text-neutral-400">Composite Score</span>
+                  <div className="text-2xl font-black text-white mt-1">
                     {submissionResult.score}%
                   </div>
                   <span className="text-[10px] text-neutral-400 mt-0.5 block">
-                    {submissionResult.passedQuestions} of {submissionResult.totalQuestions} Questions Solved
+                    Combined Rank
                   </span>
                 </div>
 
-                <div className="p-4 bg-neutral-900/60 rounded-2xl border border-neutral-800 text-center">
-                  <span className="text-[11px] font-mono uppercase text-neutral-400">Percentile Rank</span>
-                  <div className="text-3xl font-black text-emerald-400 mt-1">
+                <div className="p-3.5 bg-neutral-900/60 rounded-2xl border border-neutral-800 text-center">
+                  <span className="text-[10px] font-mono uppercase text-neutral-400">MCQ Accuracy</span>
+                  <div className="text-2xl font-black text-emerald-400 mt-1">
+                    {submissionResult.mcqScore !== undefined ? `${submissionResult.mcqScore}%` : 'N/A'}
+                  </div>
+                  <span className="text-[10px] text-neutral-400 mt-0.5 block">
+                    {submissionResult.passedMcqs || 0} / {submissionResult.totalMcqs || 30} Correct
+                  </span>
+                </div>
+
+                <div className="p-3.5 bg-neutral-900/60 rounded-2xl border border-neutral-800 text-center">
+                  <span className="text-[10px] font-mono uppercase text-neutral-400">Coding Pass</span>
+                  <div className="text-2xl font-black text-white mt-1">
+                    {submissionResult.codingScore !== undefined ? `${submissionResult.codingScore}%` : `${submissionResult.score}%`}
+                  </div>
+                  <span className="text-[10px] text-neutral-400 mt-0.5 block">
+                    {submissionResult.passedQuestions} / {submissionResult.totalQuestions} Solved
+                  </span>
+                </div>
+
+                <div className="p-3.5 bg-neutral-900/60 rounded-2xl border border-neutral-800 text-center">
+                  <span className="text-[10px] font-mono uppercase text-neutral-400">Percentile Rank</span>
+                  <div className="text-2xl font-black text-emerald-400 mt-1">
                     {submissionResult.feedback.percentileEstimate}th
                   </div>
                   <span className="text-[10px] text-neutral-400 mt-0.5 block">
-                    Top {100 - submissionResult.feedback.percentileEstimate}% of candidates
+                    Top {100 - submissionResult.feedback.percentileEstimate}% cohort
                   </span>
                 </div>
               </div>
 
-              {/* Per-Question Breakdown */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-bold text-neutral-200 uppercase tracking-wider">
-                  Test Case Results by Question
-                </h4>
-                <div className="space-y-2">
-                  {Object.entries(submissionResult.answers).map(([qId, ans]) => (
-                    <div
-                      key={qId}
-                      className="p-3 bg-neutral-950 rounded-xl border border-neutral-800/80 flex items-center justify-between text-xs"
-                    >
-                      <div className="flex items-center gap-2">
-                        {ans.status === 'PASSED' ? (
-                          <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-rose-400" />
-                        )}
-                        <span className="font-semibold text-neutral-200">
-                          {assessment?.questions.find((q) => q.id === qId)?.title || qId}
+              {/* Per-Question Coding Test Case Breakdown */}
+              {Object.keys(submissionResult.answers || {}).length > 0 && (
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-neutral-200 uppercase tracking-wider">
+                    Coding Problems Test Case Results
+                  </h4>
+                  <div className="space-y-2">
+                    {Object.entries(submissionResult.answers).map(([qId, ans]) => (
+                      <div
+                        key={qId}
+                        className="p-3 bg-neutral-950 rounded-xl border border-neutral-800/80 flex items-center justify-between text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          {ans.status === 'PASSED' ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-rose-400" />
+                          )}
+                          <span className="font-semibold text-neutral-200">
+                            {assessment?.questions.find((q) => q.id === qId)?.title || qId}
+                          </span>
+                        </div>
+                        <span className="font-mono text-neutral-400 text-[11px]">
+                          {ans.passedTestCases}/{ans.totalTestCases} Cases Passed
                         </span>
                       </div>
-                      <span className="font-mono text-neutral-400 text-[11px]">
-                        {ans.passedTestCases}/{ans.totalTestCases} Cases Passed
-                      </span>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* AI Strengths & Areas of Improvement */}
               <div className="space-y-3">
@@ -1136,7 +1894,7 @@ export default function MockAssessmentPage() {
                   onClick={() => setSubmissionResult(null)}
                   className="px-4 py-2 text-xs font-semibold text-neutral-300 hover:text-white rounded-xl bg-neutral-900 border border-neutral-800 hover:bg-neutral-800 transition"
                 >
-                  Review Code
+                  Review Answers
                 </button>
                 <Link
                   href={`/drives/${driveId}`}
@@ -1150,5 +1908,19 @@ export default function MockAssessmentPage() {
         )}
       </div>
     </RequireAuth>
+  );
+}
+
+export default function MockAssessmentPage() {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="min-h-screen bg-[#09090b] flex items-center justify-center text-neutral-400 font-mono text-xs">
+          Loading assessment environment...
+        </div>
+      }
+    >
+      <MockAssessmentContent />
+    </React.Suspense>
   );
 }

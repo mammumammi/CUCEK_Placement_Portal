@@ -7,6 +7,10 @@ import {
   listCorrectionRequests,
   reviewCorrectionRequest,
   getDepartmentStats,
+  listPlacedStudents,
+  recordPlacedStudentManual,
+  commitPlacedStudentsBatch,
+  unmarkPlacedStudent,
 } from './profiles.service';
 import { apiClient } from '@/lib/api-client';
 
@@ -15,6 +19,7 @@ vi.mock('@/lib/api-client', () => ({
     get: vi.fn(),
     post: vi.fn(),
     patch: vi.fn(),
+    delete: vi.fn(),
   },
 }));
 
@@ -126,6 +131,58 @@ describe('Profiles Service (Frontend)', () => {
         params: { branch: 'CSE' },
       });
       expect(res).toEqual(mockStats);
+    });
+  });
+
+  describe('listPlacedStudents', () => {
+    it('calls GET /profiles/placed-students with optional branch', async () => {
+      const mockList = [
+        {
+          applicationId: 'app1',
+          driveId: 'd1',
+          studentUserId: 'u1',
+          studentId: '2022BCSE001',
+          name: 'Priya',
+          branch: 'CSE',
+          company: 'Google',
+          ctcLpa: 28.5,
+        },
+      ];
+      vi.mocked(apiClient.get).mockResolvedValueOnce({ data: mockList });
+
+      const res = await listPlacedStudents('CSE');
+      expect(apiClient.get).toHaveBeenCalledWith('/profiles/placed-students', {
+        params: { branch: 'CSE' },
+      });
+      expect(res).toEqual(mockList);
+    });
+  });
+
+  describe('recordPlacedStudentManual', () => {
+    it('calls POST /profiles/placed-students/manual with payload', async () => {
+      const payload = {
+        studentId: '2022BCSE001',
+        company: 'Microsoft',
+        role: 'SDE-1',
+        ctcLpa: 22.0,
+        packageCategory: 'DREAM' as const,
+      };
+      const mockRes = { success: true, message: 'Saved', studentId: '2022BCSE001', company: 'Microsoft' };
+      vi.mocked(apiClient.post).mockResolvedValueOnce({ data: mockRes });
+
+      const res = await recordPlacedStudentManual(payload);
+      expect(apiClient.post).toHaveBeenCalledWith('/profiles/placed-students/manual', payload);
+      expect(res).toEqual(mockRes);
+    });
+  });
+
+  describe('unmarkPlacedStudent', () => {
+    it('calls DELETE /profiles/placed-students/:userId/:driveId', async () => {
+      vi.mocked(apiClient.delete).mockResolvedValueOnce({ data: { success: true, message: 'Unmarked' } });
+
+      const res = await unmarkPlacedStudent('u1', 'd1');
+      expect(apiClient.delete).toHaveBeenCalledWith('/profiles/placed-students/u1/d1');
+      expect(res.success).toBe(true);
     });
   });
 });

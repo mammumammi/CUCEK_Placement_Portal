@@ -36,6 +36,7 @@ import {
   BarChart3,
   Server,
   Network,
+  Code2,
 } from 'lucide-react';
 import {
   getPublicPlacementStats,
@@ -656,6 +657,34 @@ export default function PublicPlacementHomePage() {
                   );
                 })}
               </div>
+
+              {/* Direct Link to Live Big Data Mock OAs */}
+              <div className="p-5 rounded-2xl bg-[#09090b] border border-neutral-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="p-2.5 rounded-xl bg-white text-black shrink-0">
+                    <Code2 className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h5 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                      <span>Live Implementation: Mock Tests &amp; Online Assessments (OAs)</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-950/80 text-emerald-400 border border-emerald-800/80 font-bold">
+                        Active in Drives
+                      </span>
+                    </h5>
+                    <p className="text-[11px] text-neutral-400 mt-1">
+                      This Big Data analytics pipeline actively crawls 48,500+ web submissions across LeetCode &amp; GeeksforGeeks, synthesizes 5 coding challenges + 30 MCQs per drive, and computes predictive shortlisting models with Gaussian runtime bell curves.
+                    </p>
+                  </div>
+                </div>
+
+                <a
+                  href="#drives"
+                  className="shrink-0 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-white text-black hover:bg-neutral-200 transition shadow-xs"
+                >
+                  <span>Practice Big Data Mock OAs</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </a>
+              </div>
             </div>
           </section>
 
@@ -764,27 +793,21 @@ export default function PublicPlacementHomePage() {
                 stats.featuredDrives.map((d) => (
                   <div
                     key={d.id}
-                    className="p-5 rounded-2xl bg-[#101012] border border-neutral-800 hover:border-neutral-700 transition flex flex-col justify-between space-y-4"
+                    className="p-6 rounded-3xl bg-[#101012] border border-neutral-800 hover:border-neutral-700 transition flex flex-col justify-between space-y-4 shadow-lg shadow-black/30"
                   >
-                    <div className="space-y-2.5">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h4 className="font-bold text-white text-base">{d.company}</h4>
-                          {d.role && <p className="text-xs text-neutral-400">{d.role}</p>}
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1 pr-1">
+                          <h4 className="font-bold text-white text-base truncate" title={d.company}>{d.company}</h4>
+                          {d.role && <p className="text-xs text-neutral-400 mt-0.5 line-clamp-1" title={d.role}>{d.role}</p>}
                         </div>
-                        {d.packageCategory === 'DREAM' ? (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-white text-black border border-white">
-                            ★ Dream
-                          </span>
-                        ) : d.packageCategory === 'INTERNSHIP' ? (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-neutral-800 text-neutral-300 border border-neutral-700">
-                            ⏳ Internship
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold bg-neutral-900 text-neutral-300 border border-neutral-800">
-                            💼 General
-                          </span>
-                        )}
+                        <span className="shrink-0 whitespace-nowrap px-3.5 py-1 rounded-full text-xs font-bold bg-white text-black border border-white text-center shadow-xs tracking-wide min-w-[76px]">
+                          {d.packageCategory === 'DREAM'
+                            ? 'Dream'
+                            : d.packageCategory === 'INTERNSHIP'
+                            ? 'Internship'
+                            : 'General'}
+                        </span>
                       </div>
 
                       <div className="space-y-1.5 text-xs text-neutral-400 pt-1">
@@ -908,7 +931,7 @@ export default function PublicPlacementHomePage() {
         {/* Footer */}
         <footer className="border-t border-neutral-800/80 py-8 text-center text-xs text-neutral-500 mt-16 bg-[#09090b]">
           <div className="max-w-7xl mx-auto px-4 space-y-1">
-            <p>&copy; {new Date().getFullYear()} University Training &amp; Placement Cell &bull; Career OS</p>
+            <p>&copy; 2026 University Training &amp; Placement Cell &bull; Career OS</p>
             <p className="text-neutral-600">
               CSE &bull; ECE &bull; EEE &bull; IT &bull; CIVIL &bull; MCA &bull; Batch 2026 &bull; Batch 2028
             </p>

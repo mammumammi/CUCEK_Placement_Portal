@@ -8,7 +8,7 @@ import type { Db } from '@/core/db/client';
 import { drives, studentProfiles, applications, applicationRounds } from '@/core/db';
 import { PortalError } from '@/core/errors/portal-error';
 import type { FileStorage } from '@/server/services/storage.service';
-import type { CreateDriveInput, UpdateRoundInput } from './drives.schema';
+import type { CreateDriveInput, UpdateRoundInput, UpdateDriveDetailsInput } from './drives.schema';
 import { notifyEligibleStudentsForDrive } from './mail.service';
 
 export interface DriveActor {
@@ -21,12 +21,15 @@ export interface ProfileEligibilityInput {
   branch?: string | null;
   cgpa: number;
   activeBacklogs: number;
+  placementStatus?: 'UNPLACED' | 'GENERAL' | 'DREAM' | 'INTERNSHIP' | string | null;
+  placedCategories?: Array<'GENERAL' | 'DREAM' | 'INTERNSHIP' | string>;
 }
 
 export interface DriveEligibilityCriteria {
   eligibleBranches: string[];
   minCgpa: number;
   maxActiveBacklogs: number;
+  packageCategory?: 'GENERAL' | 'DREAM' | 'INTERNSHIP' | string | null;
 }
 
 export interface EligibilityResult {
@@ -41,6 +44,10 @@ export interface EligibilityResult {
  * 1. Branch in eligibleBranches
  * 2. CGPA >= minCgpa
  * 3. Active backlogs <= maxActiveBacklogs
+ * 4. Placement Tier Policy:
+ *    - Placed in DREAM: cannot apply for ANY further companies
+ *    - Placed in GENERAL: cannot apply for other GENERAL companies
+ *    - Placed in INTERNSHIP: cannot apply for other INTERNSHIP companies
  *
  * @param profile - Student academic details or null/undefined.
  * @param drive - Drive eligibility thresholds and allowed branches.
@@ -80,6 +87,32 @@ export function evaluateEligibility(
     );
   }
 
+  // 4. Placement Tier Policy Enforcement
+  const status = (profile.placementStatus || 'UNPLACED').toUpperCase();
+  const placedOffers = (profile.placedCategories || []).map((c) => String(c).toUpperCase());
+  const driveCategory = (drive.packageCategory || 'GENERAL').toUpperCase();
+
+  const isDreamPlaced = status === 'DREAM' || placedOffers.includes('DREAM');
+  const isGeneralPlaced = status === 'GENERAL' || placedOffers.includes('GENERAL');
+  const isInternshipPlaced = status === 'INTERNSHIP' || placedOffers.includes('INTERNSHIP');
+
+  if (isDreamPlaced) {
+    reasons.push(
+      'Students placed in a Dream category offer (≥ 7 LPA) have achieved maximum placement tier and cannot apply for further drives'
+    );
+  } else {
+    if (isGeneralPlaced && driveCategory === 'GENERAL') {
+      reasons.push(
+        'Students placed in a General category offer cannot apply for another General category drive'
+      );
+    }
+    if (isInternshipPlaced && driveCategory === 'INTERNSHIP') {
+      reasons.push(
+        'Students who have secured an Internship offer cannot apply for other Internship drives'
+      );
+    }
+  }
+
   return {
     eligible: reasons.length === 0,
     reasons,
@@ -96,14 +129,14 @@ export async function createDrive(
   actor: DriveActor,
   input: CreateDriveInput,
   fileOrFiles?:
-    | { originalname: string; buffer: Buffer; mimetype: string }
-    | Array<{ originalname: string; buffer: Buffer; mimetype: string }>
+    | { originalname: string; buffer: Buffer; mimetype: string; fieldname?: string }
+    | Array<{ originalname: string; buffer: Buffer; mimetype: string; fieldname?: string }>
 ) {
   if (actor.role !== 'MAIN_COORDINATOR') {
     throw new PortalError('FORBIDDEN', 'Only main coordinators can create recruitment drives', 403);
   }
 
-  const filesList: Array<{ originalname: string; buffer: Buffer; mimetype: string }> = [];
+  const filesList: Array<{ originalname: string; buffer: Buffer; mimetype: string; fieldname?: string }> = [];
   if (Array.isArray(fileOrFiles)) {
     filesList.push(...fileOrFiles);
   } else if (fileOrFiles) {
@@ -111,9 +144,22 @@ export async function createDrive(
   }
 
   const jdFileUrls: string[] = [];
+  const mockTestPdfUrls: string[] = Array.isArray(input.mockTestPdfUrls) ? [...input.mockTestPdfUrls] : [];
+
   for (const f of filesList) {
     const saved = await storage.save(f.originalname, f.buffer, f.mimetype);
-    jdFileUrls.push(saved.url);
+    if (
+      f.fieldname === 'mockTestFiles' ||
+      f.fieldname === 'mockTestFile' ||
+      f.originalname.toLowerCase().includes('mock') ||
+      f.originalname.toLowerCase().includes('test-paper')
+    ) {
+      if (!mockTestPdfUrls.includes(saved.url)) {
+        mockTestPdfUrls.push(saved.url);
+      }
+    } else {
+      jdFileUrls.push(saved.url);
+    }
   }
 
   if (Array.isArray(input.jdFileUrls)) {
@@ -155,8 +201,10 @@ export async function createDrive(
     description: input.description ?? null,
     packageCategory: input.packageCategory ?? 'GENERAL',
     ctcLpa: input.ctcLpa ?? null,
+    youtubeUrl: input.youtubeUrl ?? null,
     jdFileUrl,
     jdFileUrls,
+    mockTestPdfUrls,
     companyFormat: input.companyFormat ?? [],
     deadline: new Date(input.deadline).toISOString(),
     eligibleBranches: input.eligibleBranches,
@@ -197,19 +245,44 @@ export async function listDrives(db: Db, actor: DriveActor) {
     .from(drives)
     .orderBy(desc(drives.createdAt));
 
-  let studentProfile: { branch: string | null; cgpa: number; activeBacklogs: number } | null = null;
+  let studentProfile: ProfileEligibilityInput | null = null;
+  let appliedDriveIds = new Set<string>();
   if (actor.role === 'STUDENT') {
     const [profile] = await db
       .select({
         branch: studentProfiles.branch,
         cgpa: studentProfiles.cgpa,
         activeBacklogs: studentProfiles.activeBacklogs,
+        placementStatus: studentProfiles.placementStatus,
       })
       .from(studentProfiles)
       .where(eq(studentProfiles.userId, actor.id))
       .limit(1);
 
-    studentProfile = profile ?? null;
+    const placedApps = await db
+      .select({
+        packageCategory: drives.packageCategory,
+      })
+      .from(applications)
+      .innerJoin(drives, eq(applications.driveId, drives.id))
+      .where(and(eq(applications.studentUserId, actor.id), eq(applications.placed, true)));
+
+    const studentApps = await db
+      .select({ driveId: applications.driveId })
+      .from(applications)
+      .where(eq(applications.studentUserId, actor.id));
+
+    appliedDriveIds = new Set(studentApps.map((a) => a.driveId));
+
+    studentProfile = profile
+      ? {
+          branch: profile.branch,
+          cgpa: profile.cgpa,
+          activeBacklogs: profile.activeBacklogs,
+          placementStatus: profile.placementStatus,
+          placedCategories: placedApps.map((p) => p.packageCategory || 'GENERAL'),
+        }
+      : null;
   }
 
   return allDrives.map((d) => {
@@ -220,6 +293,7 @@ export async function listDrives(db: Db, actor: DriveActor) {
         eligibleBranches: d.eligibleBranches,
         minCgpa: d.minCgpa,
         maxActiveBacklogs: d.maxActiveBacklogs,
+        packageCategory: d.packageCategory,
       });
 
       return {
@@ -227,6 +301,7 @@ export async function listDrives(db: Db, actor: DriveActor) {
         open: isOpen,
         eligible: eligibility.eligible,
         reasons: eligibility.reasons,
+        userApplied: appliedDriveIds.has(d.id),
       };
     }
 
@@ -258,20 +333,51 @@ export async function getDriveById(
   const isOpen = new Date(drive.deadline).getTime() > Date.now();
 
   if (actor.role === 'STUDENT') {
-    const [studentProfile] = await db
+    const [profile] = await db
       .select({
         branch: studentProfiles.branch,
         cgpa: studentProfiles.cgpa,
         activeBacklogs: studentProfiles.activeBacklogs,
+        placementStatus: studentProfiles.placementStatus,
       })
       .from(studentProfiles)
       .where(eq(studentProfiles.userId, actor.id))
       .limit(1);
 
-    const eligibility = evaluateEligibility(studentProfile ?? null, {
+    const placedApps = await db
+      .select({
+        packageCategory: drives.packageCategory,
+      })
+      .from(applications)
+      .innerJoin(drives, eq(applications.driveId, drives.id))
+      .where(and(eq(applications.studentUserId, actor.id), eq(applications.placed, true)));
+
+    const [userApp] = await db
+      .select({ id: applications.id })
+      .from(applications)
+      .where(
+        and(
+          eq(applications.driveId, drive.id),
+          eq(applications.studentUserId, actor.id)
+        )
+      )
+      .limit(1);
+
+    const studentProfile = profile
+      ? {
+          branch: profile.branch,
+          cgpa: profile.cgpa,
+          activeBacklogs: profile.activeBacklogs,
+          placementStatus: profile.placementStatus,
+          placedCategories: placedApps.map((p) => p.packageCategory || 'GENERAL'),
+        }
+      : null;
+
+    const eligibility = evaluateEligibility(studentProfile, {
       eligibleBranches: drive.eligibleBranches,
       minCgpa: drive.minCgpa,
       maxActiveBacklogs: drive.maxActiveBacklogs,
+      packageCategory: drive.packageCategory,
     });
 
     return {
@@ -279,6 +385,7 @@ export async function getDriveById(
       open: isOpen,
       eligible: eligibility.eligible,
       reasons: eligibility.reasons,
+      userApplied: Boolean(userApp),
     };
   }
 
@@ -286,6 +393,43 @@ export async function getDriveById(
     ...drive,
     open: isOpen,
   };
+}
+
+/**
+ * Updates an existing drive's details such as YouTube video URL, role, category, and criteria.
+ */
+export async function updateDriveDetails(
+  db: Db,
+  actor: DriveActor,
+  driveId: string,
+  input: UpdateDriveDetailsInput
+) {
+  if (actor.role !== 'MAIN_COORDINATOR' && actor.role !== 'BRANCH_COORDINATOR') {
+    throw new PortalError('FORBIDDEN', 'Only placement coordinators can update drive details', 403);
+  }
+
+  const [existing] = await db.select().from(drives).where(eq(drives.id, driveId)).limit(1);
+  if (!existing) {
+    throw new PortalError('NOT_FOUND', `Drive "${driveId}" not found`, 404);
+  }
+
+  const updates: Partial<typeof drives.$inferInsert> = {};
+  if (input.company !== undefined) updates.company = input.company;
+  if (input.role !== undefined) updates.role = input.role;
+  if (input.description !== undefined) updates.description = input.description;
+  if (input.packageCategory !== undefined) updates.packageCategory = input.packageCategory;
+  if (input.ctcLpa !== undefined) updates.ctcLpa = input.ctcLpa;
+  if (input.youtubeUrl !== undefined) updates.youtubeUrl = input.youtubeUrl;
+  if (input.deadline !== undefined) updates.deadline = new Date(input.deadline).toISOString();
+  if (input.eligibleBranches !== undefined) updates.eligibleBranches = input.eligibleBranches;
+  if (input.minCgpa !== undefined) updates.minCgpa = input.minCgpa;
+  if (input.maxActiveBacklogs !== undefined) updates.maxActiveBacklogs = input.maxActiveBacklogs;
+  if (input.allowBacklogs !== undefined) updates.allowBacklogs = input.allowBacklogs;
+
+  await db.update(drives).set(updates).where(eq(drives.id, driveId));
+
+  const [updated] = await db.select().from(drives).where(eq(drives.id, driveId)).limit(1);
+  return updated;
 }
 
 /**

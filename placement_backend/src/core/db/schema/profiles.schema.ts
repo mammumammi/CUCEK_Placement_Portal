@@ -44,6 +44,9 @@ export const studentProfiles = sqliteTable(
     s7MarksheetUrl: text('s7MarksheetUrl'),
     s8MarksheetUrl: text('s8MarksheetUrl'),
     currentSemester: integer('currentSemester').notNull().default(8),
+    placementStatus: text('placementStatus', { enum: ['UNPLACED', 'GENERAL', 'DREAM', 'INTERNSHIP'] })
+      .notNull()
+      .default('UNPLACED'),
     additionalDetails: text('additionalDetails', { mode: 'json' }).$type<Record<string, unknown>>().default({}),
     isProfileComplete: integer('isProfileComplete', { mode: 'boolean' })
       .notNull()

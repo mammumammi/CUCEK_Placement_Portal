@@ -67,6 +67,7 @@ import {
   reviewCorrectionRequest,
   getDepartmentStats,
   updateBatchCurrentSemester,
+  updateStudentPlacementStatus,
   type StudentProfileData,
   type CorrectionRequestData,
   type DepartmentStats,
@@ -85,6 +86,7 @@ import {
   type BranchCreditItem,
 } from '@/services/curriculum.service';
 import { DepartmentPlacementPieChart } from '@/components/analytics/DepartmentPlacementPieChart';
+import { PlacedStudentsManager } from '@/components/placements/PlacedStudentsManager';
 
 const CANONICAL_FIELD_OPTIONS = [
   { key: 'studentId', label: 'Student ID / Roll No', required: true },
@@ -127,7 +129,7 @@ export default function CoordinatorPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'upload' | 'requests' | 'students' | 'credits' | 'drives' | 'analytics'>('students');
+  const [activeTab, setActiveTab] = useState<'upload' | 'placed' | 'requests' | 'students' | 'credits' | 'drives' | 'analytics'>('students');
 
   // Department Placement Metrics States
   const [departmentStats, setDepartmentStats] = useState<DepartmentStats | null>(null);
@@ -349,6 +351,40 @@ export default function CoordinatorPage() {
     }
   };
 
+  const [updatingStatusStudentId, setUpdatingStatusStudentId] = useState<string | null>(null);
+
+  const handleUpdateStudentStatus = async (
+    studentId: string,
+    newStatus: 'UNPLACED' | 'GENERAL' | 'DREAM' | 'INTERNSHIP'
+  ) => {
+    try {
+      setUpdatingStatusStudentId(studentId);
+      await updateStudentPlacementStatus(studentId, newStatus);
+      setStudents((prev) =>
+        prev.map((st) =>
+          st.studentId === studentId
+            ? {
+                ...st,
+                placementStatus: newStatus,
+                placement:
+                  newStatus === 'UNPLACED'
+                    ? { isPlaced: false, company: null, role: null, ctcLpa: null }
+                    : {
+                        ...(st.placement || { isPlaced: true, company: 'Recruitment Placement', role: null, ctcLpa: null }),
+                        isPlaced: true,
+                      },
+              }
+            : st
+        )
+      );
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string }; message?: string } }; message?: string };
+      alert(axiosErr.response?.data?.error?.message || axiosErr.response?.data?.message || 'Failed to update student placement status');
+    } finally {
+      setUpdatingStatusStudentId(null);
+    }
+  };
+
   const handleExportAllStudents = async () => {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet(`${user?.branch || 'Class'}_Students`);
@@ -405,7 +441,7 @@ export default function CoordinatorPage() {
         percentage: s.percentage ?? '',
         totalMarks: s.totalMarks ?? '',
         maxMarks: s.maxMarks ?? '',
-        placementStatus: s.placement?.isPlaced ? 'Placed' : 'Unplaced',
+        placementStatus: s.placementStatus || (s.placement?.isPlaced ? 'Placed' : 'Unplaced'),
         companyPlaced: s.placement?.company || '—',
         packageLpa: s.placement?.ctcLpa || '—',
         marksheetUrl: s.marksheetUrl || '',
@@ -478,6 +514,9 @@ export default function CoordinatorPage() {
     } else if (activeTab === 'analytics') {
       void fetchPublicStats();
       void fetchDeptStats();
+    } else if (activeTab === 'placed') {
+      void fetchDeptStats();
+      void fetchPublicStats();
     }
   }, [activeTab, fetchRequests, fetchStudents, fetchCredits, fetchDrives, fetchDeptStats, fetchPublicStats]);
 
@@ -812,11 +851,12 @@ export default function CoordinatorPage() {
             <nav className="space-y-1.5">
               {[
                 { id: 'students', label: 'Class Students', icon: Users, badge: students.length },
+                { id: 'placed', label: 'Record Placements', icon: Award, badge: departmentStats?.placedCount },
                 { id: 'analytics', label: 'Pie Chart Analytics', icon: PieChartIcon },
                 { id: 'drives', label: 'Recruitment Drives & Application Sheets', icon: Briefcase, badge: drivesList.length },
                 { id: 'requests', label: 'Corrections & Applied Requests', icon: FileCheck2, badge: pendingRequestsCount },
                 { id: 'upload', label: 'Upload Class Roster', icon: Upload },
-                { id: 'credits', label: 'Curriculum Credits', icon: Award },
+                { id: 'credits', label: 'Curriculum Credits', icon: Settings },
               ].map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.id;
@@ -988,6 +1028,7 @@ export default function CoordinatorPage() {
               <div className="flex items-center gap-2 overflow-x-auto lg:hidden pt-2">
                 {[
                   { id: 'students', label: 'Students' },
+                  { id: 'placed', label: 'Placements' },
                   { id: 'analytics', label: 'Pie Chart' },
                   { id: 'drives', label: 'Drives' },
                   { id: 'requests', label: 'Requests' },
@@ -1009,6 +1050,18 @@ export default function CoordinatorPage() {
                 ))}
               </div>
             </div>
+
+            {/* TAB: RECORD PLACEMENTS & ROSTER */}
+            {activeTab === 'placed' && (
+              <PlacedStudentsManager
+                userRole="BRANCH_COORDINATOR"
+                userBranch={user?.branch || undefined}
+                onStatsUpdated={() => {
+                  void fetchDeptStats();
+                  void fetchPublicStats();
+                }}
+              />
+            )}
 
             {/* TAB: DEPARTMENT PLACEMENT SHARE PIE CHART */}
             {activeTab === 'analytics' && (
@@ -1999,25 +2052,59 @@ export default function CoordinatorPage() {
                                 : '—'}
                             </td>
                             <td className="px-3.5 py-3">
-                              {s.placement?.isPlaced ? (
-                                <div className="space-y-0.5">
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              <div className="space-y-1.5 min-w-[130px]">
+                                {s.placementStatus === 'DREAM' ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-white text-black border border-white">
+                                    ★ Dream Placed
+                                  </span>
+                                ) : s.placementStatus === 'INTERNSHIP' ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-neutral-200 text-black border border-neutral-300">
+                                    ⏳ Internship Placed
+                                  </span>
+                                ) : s.placementStatus === 'GENERAL' ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-neutral-800 text-white border border-neutral-700">
+                                    💼 General Placed
+                                  </span>
+                                ) : s.placement?.isPlaced ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/80 text-emerald-300 border border-emerald-700">
                                     <Check className="h-3 w-3" /> Placed
                                   </span>
-                                  <div className="font-bold text-white text-xs truncate max-w-[120px]" title={s.placement.company || undefined}>
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-neutral-900 text-neutral-400 border border-neutral-800">
+                                    Unplaced
+                                  </span>
+                                )}
+
+                                {s.placement?.company && (
+                                  <div className="font-semibold text-white text-[11px] truncate max-w-[130px]" title={s.placement.company || undefined}>
                                     {s.placement.company}
                                   </div>
-                                  {s.placement.ctcLpa && (
-                                    <div className="text-[10px] font-mono text-emerald-700 font-bold">
-                                      {s.placement.ctcLpa} LPA
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-neutral-400">
-                                  Unplaced
-                                </span>
-                              )}
+                                )}
+
+                                {s.placement?.ctcLpa && (
+                                  <div className="text-[10px] font-mono text-emerald-400 font-bold">
+                                    {s.placement.ctcLpa} LPA
+                                  </div>
+                                )}
+
+                                <select
+                                  value={s.placementStatus || (s.placement?.isPlaced ? 'GENERAL' : 'UNPLACED')}
+                                  disabled={updatingStatusStudentId === s.studentId}
+                                  onChange={(e) =>
+                                    handleUpdateStudentStatus(
+                                      s.studentId,
+                                      e.target.value as 'UNPLACED' | 'GENERAL' | 'DREAM' | 'INTERNSHIP'
+                                    )
+                                  }
+                                  className="block w-full text-[10px] font-semibold bg-[#18181b] text-neutral-300 border border-neutral-700 rounded-md px-1.5 py-0.5 focus:outline-hidden focus:ring-1 focus:ring-white cursor-pointer"
+                                  title="Override or update student placement tier status"
+                                >
+                                  <option value="UNPLACED">Set: Unplaced</option>
+                                  <option value="GENERAL">Set: General (&lt; 7 LPA)</option>
+                                  <option value="DREAM">Set: Dream (≥ 7 LPA)</option>
+                                  <option value="INTERNSHIP">Set: Internship</option>
+                                </select>
+                              </div>
                             </td>
                             <td className="px-3.5 py-3">
                               {s.marksheetUrl ? (
@@ -2241,24 +2328,18 @@ export default function CoordinatorPage() {
                           className="bg-[#18181b] text-white rounded-2xl border border-neutral-800 p-5 shadow-xs hover:border-blue-400 hover:shadow-md transition flex flex-col justify-between"
                         >
                           <div>
-                            <div className="flex items-start justify-between gap-2 mb-2">
-                              <div>
-                                <h3 className="font-bold text-white text-base">{d.company}</h3>
-                                {d.role && <p className="text-xs text-neutral-400">{d.role}</p>}
+                            <div className="flex items-start justify-between gap-3 mb-3">
+                              <div className="min-w-0 flex-1 pr-1">
+                                <h3 className="font-bold text-white text-base truncate" title={d.company}>{d.company}</h3>
+                                {d.role && <p className="text-xs text-neutral-400 truncate" title={d.role}>{d.role}</p>}
                               </div>
-                              {d.packageCategory === 'DREAM' ? (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                                  ★ Dream
-                                </span>
-                              ) : d.packageCategory === 'INTERNSHIP' ? (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
-                                  ⏳ Internship
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-neutral-800 text-neutral-200 border border-blue-300">
-                                  💼 General
-                                </span>
-                              )}
+                              <span className="shrink-0 whitespace-nowrap px-3.5 py-1 rounded-full text-xs font-bold bg-white text-black border border-white text-center shadow-xs tracking-wide min-w-[76px]">
+                                {d.packageCategory === 'DREAM'
+                                  ? 'Dream'
+                                  : d.packageCategory === 'INTERNSHIP'
+                                  ? 'Internship'
+                                  : 'General'}
+                              </span>
                             </div>
 
                             <div className="grid grid-cols-2 gap-2 text-xs bg-neutral-900/60 p-3 rounded-xl border border-gray-100 mb-3">

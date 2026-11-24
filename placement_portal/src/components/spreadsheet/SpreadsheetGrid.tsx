@@ -267,18 +267,18 @@ export function SpreadsheetGrid({
                   studentId: row.original.studentId,
                 });
               }}
-              className="flex items-center gap-1.5 px-2 py-1 bg-gray-100 rounded border border-gray-200 cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-black rounded-lg border border-neutral-800 hover:border-neutral-700 cursor-pointer transition"
             >
-              <Lock className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-label="locked" />
+              <Lock className="w-3.5 h-3.5 text-neutral-500 shrink-0" aria-label="locked" />
               <input
                 type="text"
                 readOnly
                 disabled
                 value={row.original.studentId}
-                className="bg-transparent text-gray-800 text-xs font-mono w-full focus:outline-none cursor-pointer"
+                className="bg-transparent text-white text-xs font-mono font-medium w-full focus:outline-none cursor-pointer"
               />
               {isMyRow && (
-                <span className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-white text-black border border-white shadow-xs">
                   You
                 </span>
               )}
@@ -299,15 +299,15 @@ export function SpreadsheetGrid({
                 studentId: row.original.studentId,
               });
             }}
-            className="flex items-center gap-1.5 px-2 py-1 bg-gray-100 rounded border border-gray-200 cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-black rounded-lg border border-neutral-800 hover:border-neutral-700 cursor-pointer transition"
           >
-            <Lock className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-label="locked" />
+            <Lock className="w-3.5 h-3.5 text-neutral-500 shrink-0" aria-label="locked" />
             <input
               type="text"
               readOnly
               disabled
               value={row.original.name}
-              className="bg-transparent text-gray-800 text-xs font-medium w-full focus:outline-none cursor-pointer"
+              className="bg-transparent text-white text-xs font-medium w-full focus:outline-none cursor-pointer"
             />
           </div>
         ),
@@ -325,15 +325,15 @@ export function SpreadsheetGrid({
                 studentId: row.original.studentId,
               });
             }}
-            className="flex items-center gap-1.5 px-2 py-1 bg-gray-100 rounded border border-gray-200 cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-black rounded-lg border border-neutral-800 hover:border-neutral-700 cursor-pointer transition"
           >
-            <Lock className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-label="locked" />
+            <Lock className="w-3.5 h-3.5 text-neutral-500 shrink-0" aria-label="locked" />
             <input
               type="text"
               readOnly
               disabled
               value={row.original.branch || 'N/A'}
-              className="bg-transparent text-gray-800 text-xs w-full focus:outline-none cursor-pointer"
+              className="bg-transparent text-white text-xs font-medium w-full focus:outline-none cursor-pointer"
             />
           </div>
         ),
@@ -351,9 +351,9 @@ export function SpreadsheetGrid({
                 studentId: row.original.studentId,
               });
             }}
-            className="flex items-center gap-1.5 px-2 py-1 bg-gray-100 rounded border border-gray-200 cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-black rounded-lg border border-neutral-800 hover:border-neutral-700 cursor-pointer transition"
           >
-            <Lock className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-label="locked" />
+            <Lock className="w-3.5 h-3.5 text-neutral-500 shrink-0" aria-label="locked" />
             <input
               type="text"
               readOnly
@@ -363,7 +363,7 @@ export function SpreadsheetGrid({
                   ? row.original.cgpa.toFixed(2)
                   : String(row.original.cgpa)
               }
-              className="bg-transparent text-gray-800 text-xs font-semibold w-full focus:outline-none cursor-pointer"
+              className="bg-transparent text-white text-xs font-bold w-full focus:outline-none cursor-pointer"
             />
           </div>
         ),
@@ -407,16 +407,16 @@ export function SpreadsheetGrid({
                   onChange={(e) =>
                     handleExtraDataChange(studentId, field.key, e.target.value)
                   }
-                  className={`w-full text-xs px-2 py-1.5 border rounded-md focus:ring-1 focus:ring-emerald-500 focus:outline-none transition ${
+                  className={`w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-1 focus:ring-white focus:outline-none transition ${
                     canEdit
-                      ? 'bg-white border-emerald-400 font-medium text-emerald-950 shadow-2xs'
-                      : 'bg-gray-100 border-gray-200 cursor-not-allowed text-gray-500'
+                      ? 'bg-black border-neutral-700 hover:border-neutral-500 text-white font-medium shadow-xs'
+                      : 'bg-black border-neutral-800/80 cursor-not-allowed text-neutral-400'
                   }`}
                   title={canEdit ? 'Edit your response' : 'Peer student field (Read-only)'}
                 >
-                  <option value="">Select {field.label}...</option>
+                  <option value="" className="bg-black text-neutral-400">Select {field.label}...</option>
                   {field.options?.map((opt) => (
-                    <option key={opt} value={opt}>
+                    <option key={opt} value={opt} className="bg-black text-white">
                       {opt}
                     </option>
                   ))}
@@ -433,10 +433,10 @@ export function SpreadsheetGrid({
                       e.target.value === '' ? '' : Number(e.target.value);
                     handleExtraDataChange(studentId, field.key, val);
                   }}
-                  className={`w-full text-xs px-2 py-1.5 border rounded-md focus:ring-1 focus:ring-emerald-500 focus:outline-none transition ${
+                  className={`w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-1 focus:ring-white focus:outline-none transition ${
                     canEdit
-                      ? 'bg-white border-emerald-400 font-medium text-emerald-950 shadow-2xs'
-                      : 'bg-gray-100 border-gray-200 cursor-not-allowed text-gray-500'
+                      ? 'bg-black border-neutral-700 hover:border-neutral-500 text-white font-medium placeholder-neutral-500 shadow-xs'
+                      : 'bg-black border-neutral-800/80 cursor-not-allowed text-neutral-400 placeholder-neutral-600'
                   }`}
                   title={canEdit ? 'Edit your response' : 'Peer student field (Read-only)'}
                 />
@@ -450,16 +450,16 @@ export function SpreadsheetGrid({
                   onChange={(e) =>
                     handleExtraDataChange(studentId, field.key, e.target.value)
                   }
-                  className={`w-full text-xs px-2 py-1.5 border rounded-md focus:ring-1 focus:ring-emerald-500 focus:outline-none transition ${
+                  className={`w-full text-xs px-2.5 py-1.5 border rounded-lg focus:ring-1 focus:ring-white focus:outline-none transition ${
                     canEdit
-                      ? 'bg-white border-emerald-400 font-medium text-emerald-950 shadow-2xs'
-                      : 'bg-gray-100 border-gray-200 cursor-not-allowed text-gray-500'
+                      ? 'bg-black border-neutral-700 hover:border-neutral-500 text-white font-medium placeholder-neutral-500 shadow-xs'
+                      : 'bg-black border-neutral-800/80 cursor-not-allowed text-neutral-400 placeholder-neutral-600'
                   }`}
                   title={canEdit ? 'Edit your response' : 'Peer student field (Read-only)'}
                 />
               )}
               {row.original.additionalDetails?.[field.key] !== undefined && currentVal !== '' && currentVal !== undefined && (
-                <span className="text-[9px] font-semibold text-emerald-500 font-mono mt-0.5 block flex items-center gap-0.5">
+                <span className="text-[10px] font-semibold text-emerald-400 font-mono mt-1 flex items-center gap-1">
                   ✨ Autofilled
                 </span>
               )}
@@ -495,7 +495,7 @@ export function SpreadsheetGrid({
           <div className="flex flex-col gap-1.5 items-start">
             <div className="flex items-center gap-3">
               {perms.canVerify && (
-                <label className="inline-flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer select-none">
+                <label className="inline-flex items-center gap-1.5 text-xs text-neutral-300 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     aria-label="Verified"
@@ -504,18 +504,18 @@ export function SpreadsheetGrid({
                     onChange={(e) =>
                       handleVerifiedChange(studentId, e.target.checked)
                     }
-                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                    className="rounded border-neutral-700 bg-black text-emerald-500 focus:ring-white h-4 w-4"
                   />
-                  <span>Verified</span>
+                  <span className="text-white font-medium">Verified</span>
                 </label>
               )}
 
               {isStudentRole && !isMyRow ? (
                 <span
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold bg-gray-100 text-gray-500 border border-gray-200 cursor-not-allowed select-none"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-black text-neutral-400 border border-neutral-800 cursor-not-allowed select-none"
                   title="Peer student row. You can only edit your own data."
                 >
-                  <Lock className="w-3 h-3 text-gray-400" />
+                  <Lock className="w-3 h-3 text-neutral-500" />
                   Read-Only
                 </span>
               ) : (
@@ -523,13 +523,13 @@ export function SpreadsheetGrid({
                   type="button"
                   onClick={() => handleSave(row.original)}
                   disabled={!canSave}
-                  className="px-3 py-1.5 text-xs font-bold rounded-md text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition duration-150 flex items-center gap-1.5 shadow-2xs"
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg text-black bg-white hover:bg-neutral-200 disabled:bg-black disabled:text-neutral-500 disabled:border-neutral-800 disabled:cursor-not-allowed border border-white transition duration-150 flex items-center gap-1.5 shadow-xs"
                   title={canSave ? 'Save your changes to the live spreadsheet' : 'Make edits to enable save'}
                 >
                   {isSaving ? (
                     <>
                       <svg
-                        className="animate-spin h-3.5 w-3.5 text-white"
+                        className="animate-spin h-3.5 w-3.5 text-black"
                         viewBox="0 0 24 24"
                         fill="none"
                       >
@@ -559,7 +559,7 @@ export function SpreadsheetGrid({
             {serverError && (
               <div
                 role="alert"
-                className="text-xs text-red-600 font-medium"
+                className="text-xs text-red-400 font-medium"
               >
                 {serverError}
               </div>
@@ -606,13 +606,15 @@ export function SpreadsheetGrid({
   };
 
   return (
-    <div className="w-full rounded-xl border border-neutral-300 shadow-md bg-white overflow-hidden">
+    <div className="w-full rounded-2xl border border-neutral-800 shadow-2xl bg-black overflow-hidden">
       {/* Simulated Excel Ribbon Bar */}
-      <div className="bg-[#107c41] text-white px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs font-semibold select-none">
+      <div className="bg-black border-b border-neutral-800 text-white px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs font-semibold select-none">
         <div className="flex items-center gap-2.5">
-          <FileSpreadsheet className="h-4 w-4 text-emerald-200 shrink-0" />
-          <span className="font-bold tracking-tight">Recruitment_Drive_Applications.xlsx</span>
-          <span className="text-[10px] bg-emerald-800/80 text-emerald-100 px-2 py-0.5 rounded-full border border-emerald-600 font-mono">
+          <div className="p-1 rounded-md bg-neutral-900 border border-neutral-800">
+            <FileSpreadsheet className="h-4 w-4 text-white shrink-0" />
+          </div>
+          <span className="font-bold tracking-tight text-white">Recruitment_Drive_Applications.xlsx</span>
+          <span className="text-[10px] bg-neutral-900 text-white px-2 py-0.5 rounded-full border border-neutral-700 font-mono font-semibold">
             AutoSave: ON
           </span>
         </div>
@@ -622,7 +624,7 @@ export function SpreadsheetGrid({
             <button
               type="button"
               onClick={scrollToMyRow}
-              className="inline-flex items-center gap-1 px-2.5 py-1 bg-white text-[#107c41] rounded-md text-[11px] font-bold hover:bg-emerald-50 transition shadow-2xs"
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-white text-black rounded-lg text-[11px] font-bold hover:bg-neutral-200 transition shadow-xs"
             >
               <ArrowDown className="h-3 w-3" />
               <span>Jump to My Row</span>
@@ -630,50 +632,50 @@ export function SpreadsheetGrid({
           )}
 
           <div className="relative">
-            <Search className="h-3 w-3 absolute left-2 top-2 text-emerald-700" />
+            <Search className="h-3 w-3 absolute left-2.5 top-2 text-neutral-500" />
             <input
               type="text"
               placeholder="Search student or branch..."
               value={searchFilter}
               onChange={(e) => setSearchFilter(e.target.value)}
-              className="pl-7 pr-2.5 py-1 text-[11px] rounded bg-white text-gray-900 placeholder-gray-400 focus:outline-none w-36 sm:w-48 shadow-2xs"
+              className="pl-8 pr-2.5 py-1 text-xs rounded-lg bg-black border border-neutral-700 text-white placeholder-neutral-500 focus:outline-none focus:border-white focus:ring-1 focus:ring-white w-36 sm:w-48 shadow-2xs"
             />
           </div>
         </div>
       </div>
 
       {/* Simulated Excel Formula Bar */}
-      <div className="bg-neutral-100 border-b border-neutral-300 px-3 py-1.5 flex items-center gap-2 text-xs font-mono text-neutral-700 select-none">
-        <div className="bg-white border border-neutral-300 px-2.5 py-0.5 rounded text-[11px] font-bold min-w-12 text-center text-neutral-800 shadow-2xs">
+      <div className="bg-black border-b border-neutral-800 px-3 py-1.5 flex items-center gap-2 text-xs font-mono text-neutral-300 select-none">
+        <div className="bg-black border border-neutral-700 px-2.5 py-0.5 rounded text-[11px] font-bold min-w-12 text-center text-white shadow-inner">
           {selectedCell ? selectedCell.coord : 'A1'}
         </div>
-        <span className="text-neutral-400 font-bold italic">fx</span>
-        <div className="flex-1 bg-white border border-neutral-300 px-3 py-0.5 rounded text-[11px] text-neutral-900 truncate shadow-2xs">
+        <span className="text-neutral-500 font-bold italic px-0.5">fx</span>
+        <div className="flex-1 bg-black border border-neutral-700 px-3 py-0.5 rounded text-[11px] text-white truncate shadow-inner">
           {selectedCell ? (
             <span>
               <span className="text-neutral-400">{selectedCell.fieldLabel} [{selectedCell.studentId}]: </span>
-              <span className="font-semibold">{selectedCell.value || '<empty>'}</span>
+              <span className="font-semibold text-white">{selectedCell.value || '<empty>'}</span>
             </span>
           ) : (
-            <span className="text-neutral-400 italic">Select any spreadsheet cell to inspect coordinate and value</span>
+            <span className="text-neutral-500 italic">Select any spreadsheet cell to inspect coordinate and value</span>
           )}
         </div>
       </div>
 
       {/* Spreadsheet Table Grid */}
-      <div className="w-full overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead className="bg-neutral-100 border-b border-neutral-300 text-xs font-semibold text-neutral-600 select-none">
+      <div className="w-full overflow-x-auto bg-black">
+        <table className="w-full text-left border-collapse bg-black">
+          <thead className="bg-[#0c0c0e] border-b border-neutral-800 text-xs font-semibold text-neutral-300 select-none">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {/* Row Number Header Gutter */}
-                <th className="w-10 px-2 py-2 text-center text-[10px] font-mono text-neutral-400 border-r border-neutral-300 bg-neutral-200/70">
+                <th className="w-10 px-2 py-2 text-center text-[10px] font-mono text-neutral-500 border-r border-neutral-800 bg-[#0c0c0e]">
                   #
                 </th>
                 {headerGroup.headers.map((header) => (
                   <th
                     key={header.id}
-                    className="px-4 py-2.5 whitespace-nowrap tracking-wider border-r border-neutral-200 last:border-r-0"
+                    className="px-4 py-2.5 whitespace-nowrap tracking-wider border-r border-neutral-800 last:border-r-0 text-white font-bold"
                   >
                     {header.isPlaceholder
                       ? null
@@ -686,12 +688,12 @@ export function SpreadsheetGrid({
               </tr>
             ))}
           </thead>
-          <tbody className="divide-y divide-neutral-200 text-xs font-mono">
+          <tbody className="divide-y divide-neutral-800/80 text-xs font-mono bg-black">
             {table.getRowModel().rows.length === 0 ? (
               <tr>
                 <td
                   colSpan={columns.length + 1}
-                  className="px-4 py-8 text-center text-sm text-neutral-500 font-sans"
+                  className="px-4 py-8 text-center text-sm text-neutral-400 font-sans"
                 >
                   {searchFilter
                     ? 'No candidates matched your search filter.'
@@ -712,19 +714,19 @@ export function SpreadsheetGrid({
                     ref={isMyRow ? myRowRef : undefined}
                     className={`transition-colors ${
                       isMyRow
-                        ? 'bg-emerald-50/80 hover:bg-emerald-100/70 border-l-4 border-l-emerald-600'
-                        : 'hover:bg-neutral-50/90'
+                        ? 'bg-neutral-900/90 hover:bg-neutral-800/80 border-l-4 border-l-white ring-1 ring-white/10'
+                        : 'bg-black hover:bg-neutral-900/50'
                     }`}
                   >
                     {/* Row Index Number Gutter */}
-                    <td className="w-10 px-2 py-2 text-center text-[11px] font-mono text-neutral-400 bg-neutral-100/80 border-r border-neutral-300 select-none">
+                    <td className="w-10 px-2 py-2 text-center text-[11px] font-mono text-neutral-500 bg-[#0c0c0e] border-r border-neutral-800 select-none">
                       {rowIdx + 1}
                     </td>
 
                     {row.getVisibleCells().map((cell) => (
                       <td
                         key={cell.id}
-                        className="px-3 py-2 whitespace-nowrap border-r border-neutral-200 last:border-r-0"
+                        className="px-3 py-2 whitespace-nowrap border-r border-neutral-800 last:border-r-0 text-white"
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
@@ -738,20 +740,20 @@ export function SpreadsheetGrid({
       </div>
 
       {/* Simulated Excel Bottom Sheet Tab Bar */}
-      <div className="bg-neutral-100 border-t border-neutral-300 px-4 py-2 flex flex-wrap items-center justify-between gap-3 text-xs text-neutral-600 select-none font-sans">
+      <div className="bg-[#0c0c0e] border-t border-neutral-800 px-4 py-2 flex flex-wrap items-center justify-between gap-3 text-xs text-neutral-400 select-none font-sans">
         <div className="flex items-center gap-1.5">
-          <div className="bg-white px-3 py-1 rounded-t border-t-2 border-t-emerald-600 border-x border-neutral-300 font-semibold text-emerald-950 flex items-center gap-1.5 text-xs shadow-2xs">
-            <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+          <div className="bg-black px-3.5 py-1.5 rounded-t-lg border-t-2 border-t-white border-x border-neutral-800 font-bold text-white flex items-center gap-2 text-xs shadow-md">
+            <FileSpreadsheet className="h-3.5 w-3.5 text-white" />
             <span>Sheet1 - Applicants Roster ({filteredData.length})</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 text-[11px] text-neutral-500 font-mono">
-          <span className="flex items-center gap-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-            Ready
+        <div className="flex items-center gap-3 text-[11px] text-neutral-400 font-mono">
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="text-neutral-300 font-medium">Ready</span>
           </span>
-          <span>&bull;</span>
+          <span className="text-neutral-600">&bull;</span>
           <span>Zoom: 100%</span>
         </div>
       </div>

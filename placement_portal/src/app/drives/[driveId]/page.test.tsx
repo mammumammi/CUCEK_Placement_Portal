@@ -95,7 +95,7 @@ describe('DriveApplicationPage Component', () => {
       userApplied: true,
     });
 
-    render(<DriveApplicationPage params={{ driveId: 'prop-drive-2' }} />);
+    render(<DriveApplicationPage params={Promise.resolve({ driveId: 'prop-drive-2' })} />);
 
     await waitFor(() => {
       expect(screen.getByText(/Microsoft Recruitment Drive/i)).toBeInTheDocument();

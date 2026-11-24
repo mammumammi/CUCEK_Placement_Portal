@@ -34,8 +34,12 @@ export const drives = sqliteTable(
     description: text('description'),
     packageCategory: text('packageCategory').default('GENERAL'), // 'GENERAL' | 'DREAM' | 'INTERNSHIP'
     ctcLpa: real('ctcLpa'),
+    youtubeUrl: text('youtubeUrl'),
     jdFileUrl: text('jdFileUrl'),
     jdFileUrls: text('jdFileUrls', { mode: 'json' })
+      .$type<string[]>()
+      .default([]),
+    mockTestPdfUrls: text('mockTestPdfUrls', { mode: 'json' })
       .$type<string[]>()
       .default([]),
     companyFormat: text('companyFormat', { mode: 'json' })

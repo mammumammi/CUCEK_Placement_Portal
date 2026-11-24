@@ -34,8 +34,10 @@ export interface DriveItem {
   description: string | null;
   packageCategory: PackageCategory;
   ctcLpa: number | null;
+  youtubeUrl?: string | null;
   jdFileUrl: string | null;
   jdFileUrls?: string[];
+  mockTestPdfUrls?: string[];
   companyFormat?: CompanyFormatColumn[];
   deadline: string;
   eligibleBranches: string[];
@@ -62,6 +64,7 @@ export interface JdSummaryResult {
   allowBacklogs: boolean;
   maxActiveBacklogs: number;
   eligibleBranches: string[];
+  youtubeUrl?: string | null;
 }
 
 export interface BranchPlacementStat {
@@ -334,5 +337,37 @@ export function getComprehensiveStatisticsExportUrl(): string {
   const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
   return `${base}/drives/statistics/export-excel`;
 }
+
+/**
+ * Updates an existing drive's details such as YouTube URL, role, category, and criteria.
+ */
+export async function updateDriveDetails(
+  driveId: string,
+  payload: {
+    company?: string;
+    role?: string;
+    description?: string;
+    packageCategory?: PackageCategory;
+    ctcLpa?: number | null;
+    youtubeUrl?: string | null;
+  }
+): Promise<DriveItem> {
+  const response = await apiClient.patch<DriveItem>(`/drives/${driveId}/details`, payload);
+  return response.data;
+}
+
+/**
+ * Helper to convert various YouTube URL formats (standard, shorts, youtu.be, embed)
+ * into a standard responsive embed URL.
+ */
+export function getYouTubeEmbedUrl(url?: string | null): string | null {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  const regExp = /(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+  const match = trimmed.match(regExp);
+  return match && match[1] ? `https://www.youtube.com/embed/${match[1]}` : null;
+}
+
+export { uploadMockTestPdf } from './assessments.service';
 
 

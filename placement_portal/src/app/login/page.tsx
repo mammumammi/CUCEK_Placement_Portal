@@ -17,7 +17,7 @@ import type { UserRole } from '@/core/types/roles';
 /**
  * Maps user roles to designated landing page routes post-login.
  */
-export const ROLE_REDIRECT_ROUTES: Record<UserRole, string> = {
+const ROLE_REDIRECT_ROUTES: Record<UserRole, string> = {
   MAIN_COORDINATOR: '/admin',
   BRANCH_COORDINATOR: '/coordinator',
   STUDENT: '/student',

@@ -18,6 +18,7 @@ export interface JdSummaryResult {
   allowBacklogs: boolean;
   maxActiveBacklogs: number;
   eligibleBranches: string[];
+  youtubeUrl?: string | null;
 }
 
 /**
@@ -151,6 +152,24 @@ export function parseJdDeterministically(text: string): JdSummaryResult {
     ? Array.from(detectedBranches)
     : ['CSE', 'IT', 'ECE'];
 
+  // Suggest relevant YouTube technical interview / company overview preparation video
+  let youtubeUrl = 'https://www.youtube.com/watch?v=WW_m_Qy5F2I'; // General Tech Career & Interview Blueprint
+  if (lower.includes('google')) {
+    youtubeUrl = 'https://www.youtube.com/watch?v=kQtflH_U6hI'; // How We Hire at Google & Tech Interview
+  } else if (lower.includes('microsoft')) {
+    youtubeUrl = 'https://www.youtube.com/watch?v=Xz2h0Z_1n4s'; // Life & Engineering Careers at Microsoft
+  } else if (lower.includes('amazon')) {
+    youtubeUrl = 'https://www.youtube.com/watch?v=dEJZ9fOqN4A'; // Amazon Technical Interview & Leadership Principles
+  } else if (lower.includes('tcs')) {
+    youtubeUrl = 'https://www.youtube.com/watch?v=2JjXvV44X-U'; // TCS Digital & Ninja Assessment Strategy
+  } else if (lower.includes('infosys')) {
+    youtubeUrl = 'https://www.youtube.com/watch?v=8VzE8i1n-k8'; // Infosys Specialist Programmer & DSE Guide
+  } else if (lower.includes('wipro')) {
+    youtubeUrl = 'https://www.youtube.com/watch?v=y3_V1b_xZGE'; // Wipro Elite NTH Interview Process
+  } else if (lower.includes('accenture')) {
+    youtubeUrl = 'https://www.youtube.com/watch?v=kQ4L5uGq7l0'; // Accenture Recruitment & Coding Round Overview
+  }
+
   const summary = `${company} is recruiting for ${role} with a compensation package categorized under ${packageCategory}${ctcLpa ? ` (${ctcLpa} LPA)` : ''}. Eligibility requires a minimum CGPA of ${minCgpa} across ${eligibleBranches.join(', ')} with ${allowBacklogs ? 'active supply/backlogs permitted' : 'no active backlogs'}.`;
 
   return {
@@ -163,6 +182,7 @@ export function parseJdDeterministically(text: string): JdSummaryResult {
     allowBacklogs,
     maxActiveBacklogs: allowBacklogs ? 2 : 0,
     eligibleBranches,
+    youtubeUrl,
   };
 }
 
@@ -224,7 +244,8 @@ Analyze this recruitment Job Description (JD) and any accompanying documents (e.
   "ctcLpa": numeric compensation in LPA (e.g. 8.5) or null,
   "minCgpa": numeric minimum CGPA (0-10) or 0 if not specified,
   "allowBacklogs": boolean (true if active backlogs/supply/arrears are explicitly allowed, false if zero backlogs required),
-  "eligibleBranches": array of uppercase department codes from ["CSE", "ECE", "EEE", "IT", "CIVIL", "MCA", "MECH", "AIDS"]
+  "eligibleBranches": array of uppercase department codes from ["CSE", "ECE", "EEE", "IT", "CIVIL", "MCA", "MECH", "AIDS"],
+  "youtubeUrl": "Optional verified YouTube video link for company life, culture, or technical interview preparation"
 }
 
 Package Category Classification Rules:
@@ -285,6 +306,7 @@ Provide pure JSON only.`;
         eligibleBranches: Array.isArray(parsed.eligibleBranches) && parsed.eligibleBranches.length > 0
           ? parsed.eligibleBranches.map((b: string) => b.toUpperCase())
           : ['CSE', 'IT', 'ECE'],
+        youtubeUrl: parsed.youtubeUrl || (parsed.company?.toLowerCase().includes('google') ? 'https://www.youtube.com/watch?v=kQtflH_U6hI' : 'https://www.youtube.com/watch?v=WW_m_Qy5F2I'),
       };
     } catch {
       // AI call or parsing failed; fallback gracefully to deterministic heuristic parser

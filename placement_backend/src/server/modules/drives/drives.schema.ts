@@ -42,6 +42,7 @@ export const createDriveSchema = z.object({
   description: z.string().trim().optional().nullable(),
   packageCategory: z.enum(['GENERAL', 'DREAM', 'INTERNSHIP']).optional().default('GENERAL'),
   ctcLpa: z.coerce.number().optional().nullable(),
+  youtubeUrl: z.string().trim().optional().nullable(),
   deadline: z
     .string()
     .trim()
@@ -118,6 +119,18 @@ export const createDriveSchema = z.object({
     if (val === undefined || val === null || val === '') return [];
     return val;
   }, z.array(z.string().trim()).optional().default([])),
+  mockTestPdfUrls: z.preprocess((val) => {
+    if (typeof val === 'string') {
+      try {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return [val];
+      }
+    }
+    if (val === undefined || val === null || val === '') return [];
+    return val;
+  }, z.array(z.string().trim()).optional().default([])),
 });
 
 export type CreateDriveInput = z.infer<typeof createDriveSchema>;
@@ -142,4 +155,23 @@ export const updateRoundSchema = z
   );
 
 export type UpdateRoundInput = z.infer<typeof updateRoundSchema>;
+
+/**
+ * Schema for updating an existing drive's details (such as YouTube video link, role, category).
+ */
+export const updateDriveDetailsSchema = z.object({
+  company: z.string().trim().min(1, 'Company name is required').optional(),
+  role: z.string().trim().optional().nullable(),
+  description: z.string().trim().optional().nullable(),
+  packageCategory: z.enum(['GENERAL', 'DREAM', 'INTERNSHIP']).optional(),
+  ctcLpa: z.coerce.number().optional().nullable(),
+  youtubeUrl: z.string().trim().optional().nullable(),
+  deadline: z.string().trim().optional(),
+  eligibleBranches: z.array(z.string().trim().min(1)).optional(),
+  minCgpa: z.coerce.number().min(0).max(10).optional(),
+  maxActiveBacklogs: z.coerce.number().int().min(0).optional(),
+  allowBacklogs: z.coerce.boolean().optional(),
+});
+
+export type UpdateDriveDetailsInput = z.infer<typeof updateDriveDetailsSchema>;
 

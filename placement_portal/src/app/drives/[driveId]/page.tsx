@@ -25,18 +25,20 @@ import {
   Info,
   Code2,
   Sparkles,
+  Video,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { RequireAuth } from '@/components/auth/require-auth';
 import { DrivesSpreadsheet } from '@/components/spreadsheet/DrivesSpreadsheet';
-import { getDriveById, type DriveItem } from '@/services/drives.service';
+import { getDriveById, getYouTubeEmbedUrl, type DriveItem } from '@/services/drives.service';
 import { applyToDrive } from '@/services/spreadsheet.service';
 
 interface DrivePageProps {
-  params?: Promise<{ driveId: string }> | { driveId: string };
+  params?: Promise<{ driveId: string }>;
 }
 
-export default function DriveApplicationPage({ params }: DrivePageProps) {
+function DriveApplicationContent({ params }: DrivePageProps) {
   const routeParams = useParams();
   const routeDriveId =
     typeof routeParams?.driveId === 'string'
@@ -46,8 +48,8 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
       : undefined;
 
   const [propDriveId, setPropDriveId] = useState<string | undefined>(() => {
-    if (params && !('then' in params) && 'driveId' in params) {
-      return (params as { driveId: string }).driveId;
+    if (params && !('then' in (params as any)) && 'driveId' in (params as any)) {
+      return (params as any).driveId;
     }
     return undefined;
   });
@@ -112,7 +114,7 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
       await fetchDrive();
     } catch (err: unknown) {
       const axiosErr = err as {
-        response?: { data?: { error?: { message?: string }; message?: string } };
+        response?: { status?: number; data?: { error?: { message?: string }; message?: string } };
         message?: string;
       };
       const message =
@@ -120,7 +122,17 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
         axiosErr.response?.data?.message ||
         axiosErr.message ||
         'Failed to submit drive application';
-      setApplyError(message);
+
+      if (
+        message.includes('do not have permission') ||
+        (axiosErr.response?.status === 403 && user?.role !== 'STUDENT')
+      ) {
+        setApplyError(
+          `You cannot apply because your active session belongs to an administrator/coordinator account (${user?.role || 'Staff'}). Only registered students can apply for recruitment drives. Please log in with a student account or open an Incognito window.`
+        );
+      } else {
+        setApplyError(message);
+      }
     } finally {
       setApplyLoading(false);
     }
@@ -130,20 +142,20 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
     switch (cat) {
       case 'DREAM':
         return (
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
-            ★ Dream (≥ 7 LPA)
+          <span className="shrink-0 whitespace-nowrap inline-flex items-center justify-center px-4 py-1 rounded-full text-xs font-bold bg-white text-black border border-white shadow-xs">
+            Dream (≥ 7 LPA)
           </span>
         );
       case 'INTERNSHIP':
         return (
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-300">
-            ⏳ Internship
+          <span className="shrink-0 whitespace-nowrap inline-flex items-center justify-center px-4 py-1 rounded-full text-xs font-bold bg-white text-black border border-white shadow-xs">
+            Internship
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-300">
-            💼 General (&lt; 7 LPA)
+          <span className="shrink-0 whitespace-nowrap inline-flex items-center justify-center px-4 py-1 rounded-full text-xs font-bold bg-white text-black border border-white shadow-xs">
+            General (&lt; 7 LPA)
           </span>
         );
     }
@@ -181,7 +193,7 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
 
             <div className="flex items-center gap-3">
               <span className="text-xs text-neutral-400">Signed in as</span>
-              <span className="text-xs font-mono font-semibold px-2 py-1 rounded-md bg-gray-100 text-neutral-200">
+              <span className="text-xs font-mono font-semibold px-2.5 py-1 rounded-md bg-neutral-900 border border-neutral-700 text-white shadow-xs">
                 {user?.username} ({user?.role})
               </span>
             </div>
@@ -268,6 +280,13 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
                       </a>
                     )}
 
+                    {user && user.role !== 'STUDENT' && (
+                      <span className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-neutral-900 text-neutral-300 border border-neutral-700 rounded-lg text-xs font-semibold">
+                        <Info className="h-4 w-4 text-neutral-400" />
+                        <span>{user.role === 'MAIN_COORDINATOR' ? 'Super Admin Mode' : 'Coordinator Mode'}</span>
+                      </span>
+                    )}
+
                     {user?.role === 'STUDENT' && drive.open && (
                       <div>
                         {drive.userApplied ? (
@@ -343,6 +362,46 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
                     <p className="whitespace-pre-line leading-relaxed text-neutral-400">
                       {drive.description}
                     </p>
+                  </div>
+                )}
+
+                {/* YouTube Interview Preparation & Company Overview Video */}
+                {drive.youtubeUrl && getYouTubeEmbedUrl(drive.youtubeUrl) && (
+                  <div className="p-6 bg-[#101012] border-b border-neutral-800/80 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 rounded-xl bg-neutral-900 border border-neutral-700 text-white">
+                          <Video className="h-4 w-4 text-white" />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-white text-sm">
+                            Company Overview &amp; Interview Preparation Video
+                          </h4>
+                          <p className="text-xs text-neutral-400">
+                            Curated preparation resource and interview insights for {drive.company}
+                          </p>
+                        </div>
+                      </div>
+                      <a
+                        href={drive.youtubeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-300 hover:text-white transition w-fit"
+                      >
+                        <span>Watch on YouTube</span>
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    </div>
+
+                    <div className="aspect-video max-w-3xl w-full rounded-2xl overflow-hidden border border-neutral-800 bg-black shadow-lg">
+                      <iframe
+                        src={getYouTubeEmbedUrl(drive.youtubeUrl)!}
+                        title={`${drive.company} Interview Preparation Video`}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        allowFullScreen
+                        className="w-full h-full"
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -429,6 +488,20 @@ export default function DriveApplicationPage({ params }: DrivePageProps) {
         </main>
       </div>
     </RequireAuth>
+  );
+}
+
+export default function DriveApplicationPage(props: DrivePageProps) {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="min-h-screen bg-[#09090b] flex items-center justify-center text-neutral-400 font-mono text-xs">
+          Loading application workspace...
+        </div>
+      }
+    >
+      <DriveApplicationContent {...props} />
+    </React.Suspense>
   );
 }
 

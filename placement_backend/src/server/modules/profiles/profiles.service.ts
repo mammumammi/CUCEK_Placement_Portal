@@ -942,3 +942,466 @@ export async function updateBatchCurrentSemester(
   };
 }
 
+/**
+ * Retrieves all currently placed students with drive and company details.
+ */
+export async function listPlacedStudents(
+  db: Db,
+  actor: ProfileActor,
+  branchQuery?: string
+) {
+  const targetBranch = actor.role === 'BRANCH_COORDINATOR' ? actor.branch! : (branchQuery || null);
+
+  const query = db
+    .select({
+      applicationId: applications.id,
+      driveId: drives.id,
+      studentUserId: studentProfiles.userId,
+      studentId: studentProfiles.studentId,
+      name: studentProfiles.name,
+      branch: studentProfiles.branch,
+      batch: studentProfiles.batch,
+      cgpa: studentProfiles.cgpa,
+      company: drives.company,
+      role: drives.role,
+      ctcLpa: drives.ctcLpa,
+      packageCategory: drives.packageCategory,
+      placedAt: applications.createdAt,
+    })
+    .from(applications)
+    .innerJoin(drives, eq(applications.driveId, drives.id))
+    .innerJoin(studentProfiles, eq(applications.studentUserId, studentProfiles.userId))
+    .where(eq(applications.placed, true));
+
+  const allPlaced = await query;
+  if (!targetBranch) {
+    return allPlaced;
+  }
+  return allPlaced.filter((p) => p.branch && p.branch.toUpperCase() === targetBranch.toUpperCase());
+}
+
+/**
+ * Manually records a placed student with company, package, role, and category.
+ */
+export async function recordPlacedStudentManual(
+  db: Db,
+  actor: ProfileActor,
+  input: {
+    studentId: string;
+    company: string;
+    role?: string;
+    ctcLpa?: number | null;
+    packageCategory?: 'GENERAL' | 'DREAM' | 'INTERNSHIP';
+    driveId?: string | null;
+  }
+) {
+  // 1. Find student
+  const [student] = await db
+    .select()
+    .from(studentProfiles)
+    .where(eq(studentProfiles.studentId, input.studentId.trim()))
+    .limit(1);
+
+  if (!student) {
+    throw new PortalError('NOT_FOUND', `Student with ID "${input.studentId}" not found in system`, 404);
+  }
+
+  // RBAC branch check for branch coordinators
+  if (actor.role === 'BRANCH_COORDINATOR' && actor.branch) {
+    if (student.branch && student.branch.toUpperCase() !== actor.branch.toUpperCase()) {
+      throw new PortalError('FORBIDDEN', `Access denied: Student belongs to branch ${student.branch}`, 403);
+    }
+  }
+
+  // 2. Find or create drive
+  let targetDriveId = input.driveId;
+  let targetDriveCompany = input.company.trim();
+
+  if (targetDriveId) {
+    const [existingDrive] = await db.select().from(drives).where(eq(drives.id, targetDriveId)).limit(1);
+    if (!existingDrive) {
+      throw new PortalError('NOT_FOUND', `Selected drive "${targetDriveId}" not found`, 404);
+    }
+    targetDriveCompany = existingDrive.company;
+  } else {
+    // Look up existing drive with matching company name
+    const allMatchingDrives = await db.select().from(drives);
+    const existingCompanyDrive = allMatchingDrives.find(
+      (d) => d.company.toLowerCase() === input.company.trim().toLowerCase()
+    );
+
+    if (existingCompanyDrive) {
+      targetDriveId = existingCompanyDrive.id;
+    } else {
+      // Create new drive representation for company placement
+      const newDriveId = crypto.randomUUID();
+      const deadlineDate = new Date();
+      deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
+
+      await db.insert(drives).values({
+        id: newDriveId,
+        company: input.company.trim(),
+        role: input.role?.trim() || 'Placed Trainee',
+        ctcLpa: input.ctcLpa || null,
+        packageCategory: input.packageCategory || 'GENERAL',
+        deadline: deadlineDate.toISOString(),
+        eligibleBranches: ['CSE', 'ECE', 'EEE', 'IT', 'CIVIL', 'MCA'],
+        minCgpa: 0,
+        maxActiveBacklogs: 0,
+        allowBacklogs: true,
+        createdBy: actor.id,
+      });
+
+      targetDriveId = newDriveId;
+    }
+  }
+
+  // 3. Upsert application with placed: true, verified: true
+  const existingApp = await db
+    .select()
+    .from(applications)
+    .where(and(eq(applications.driveId, targetDriveId), eq(applications.studentUserId, student.userId)))
+    .limit(1)
+    .then((r) => r[0]);
+
+  if (existingApp) {
+    await db
+      .update(applications)
+      .set({
+        placed: true,
+        verified: true,
+        verifiedBy: actor.id,
+      })
+      .where(eq(applications.id, existingApp.id));
+  } else {
+    await db.insert(applications).values({
+      id: crypto.randomUUID(),
+      driveId: targetDriveId,
+      studentUserId: student.userId,
+      placed: true,
+      verified: true,
+      verifiedBy: actor.id,
+    });
+  }
+
+  // 4. Update student profile placementStatus
+  const newPlacementStatus = input.packageCategory || 'GENERAL';
+  await db
+    .update(studentProfiles)
+    .set({ placementStatus: newPlacementStatus })
+    .where(eq(studentProfiles.userId, student.userId));
+
+  // 5. Audit log
+  await db.insert(auditLogs).values({
+    id: crypto.randomUUID(),
+    actorId: actor.id,
+    studentUserId: student.userId,
+    field: 'placed',
+    oldValue: existingApp?.placed ? 'true' : 'false',
+    newValue: `true (${targetDriveCompany} - ${input.ctcLpa || 0} LPA - ${newPlacementStatus})`,
+    createdAt: new Date(),
+  });
+
+  return {
+    success: true,
+    studentId: student.studentId,
+    name: student.name,
+    branch: student.branch,
+    company: targetDriveCompany,
+    role: input.role || null,
+    ctcLpa: input.ctcLpa || null,
+    packageCategory: input.packageCategory || 'GENERAL',
+    message: `Student ${student.name || student.studentId} successfully marked as placed at ${targetDriveCompany}.`,
+  };
+}
+
+/**
+ * Validates and previews a batch Excel spreadsheet of placed students before committing.
+ */
+export async function previewPlacedStudentsExcel(
+  db: Db,
+  actor: ProfileActor,
+  fileBuffer: Buffer
+) {
+  const ExcelJS = (await import('exceljs')).default;
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(fileBuffer as any);
+
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet || worksheet.rowCount < 2) {
+    throw new PortalError('VALIDATION_ERROR', 'Uploaded Excel file must have a header row and at least one student data row', 400);
+  }
+
+  // Header row detection
+  const headerMap: Record<string, number> = {};
+  const headerRow = worksheet.getRow(1);
+  headerRow.eachCell((cell, colNumber) => {
+    const val = String(cell.value || '').trim().toLowerCase();
+    if (val.includes('student') || val.includes('roll') || val === 'id' || val.includes('reg')) {
+      if (!headerMap.studentId) headerMap.studentId = colNumber;
+    } else if (val.includes('company') || val.includes('organization') || val.includes('employer')) {
+      if (!headerMap.company) headerMap.company = colNumber;
+    } else if (val.includes('ctc') || val.includes('package') || val.includes('lpa') || val.includes('salary')) {
+      if (!headerMap.ctcLpa) headerMap.ctcLpa = colNumber;
+    } else if (val.includes('role') || val.includes('designation') || val.includes('title') || val.includes('position')) {
+      if (!headerMap.role) headerMap.role = colNumber;
+    } else if (val.includes('category') || val.includes('tier') || val.includes('type')) {
+      if (!headerMap.packageCategory) headerMap.packageCategory = colNumber;
+    }
+  });
+
+  if (!headerMap.studentId || !headerMap.company) {
+    throw new PortalError(
+      'VALIDATION_ERROR',
+      'Excel sheet must contain at least "Student ID" (or Roll No) and "Company Name" columns',
+      400
+    );
+  }
+
+  // Fetch all profiles for efficient lookup
+  const allProfiles = await db.select().from(studentProfiles);
+  const profileMap = new Map<string, typeof allProfiles[0]>();
+  for (const p of allProfiles) {
+    profileMap.set(p.studentId.trim().toLowerCase(), p);
+    if (p.registrationNumber) {
+      profileMap.set(p.registrationNumber.trim().toLowerCase(), p);
+    }
+  }
+
+  const rows: Array<{
+    rowNumber: number;
+    studentId: string;
+    name?: string;
+    branch?: string;
+    cgpa?: number;
+    company: string;
+    role?: string;
+    ctcLpa?: number | null;
+    packageCategory: 'GENERAL' | 'DREAM' | 'INTERNSHIP';
+    valid: boolean;
+    error?: string;
+  }> = [];
+
+  let validCount = 0;
+  let invalidCount = 0;
+
+  for (let r = 2; r <= worksheet.rowCount; r++) {
+    const row = worksheet.getRow(r);
+    const rawStudentId = String(row.getCell(headerMap.studentId).value || '').trim();
+    if (!rawStudentId) continue; // skip blank rows
+
+    const rawCompany = String(row.getCell(headerMap.company).value || '').trim();
+    const rawRole = headerMap.role ? String(row.getCell(headerMap.role).value || '').trim() : '';
+    const rawCtc = headerMap.ctcLpa ? row.getCell(headerMap.ctcLpa).value : null;
+    const rawCat = headerMap.packageCategory ? String(row.getCell(headerMap.packageCategory).value || '').trim().toUpperCase() : 'GENERAL';
+
+    let ctcLpa: number | null = null;
+    if (rawCtc !== null && rawCtc !== undefined && String(rawCtc).trim() !== '') {
+      const parsed = parseFloat(String(rawCtc).replace(/[^0-9.]/g, ''));
+      if (!isNaN(parsed) && parsed > 0) {
+        ctcLpa = parsed;
+      }
+    }
+
+    const packageCategory: 'GENERAL' | 'DREAM' | 'INTERNSHIP' =
+      rawCat.includes('DREAM') ? 'DREAM' : rawCat.includes('INTERN') ? 'INTERNSHIP' : 'GENERAL';
+
+    const student = profileMap.get(rawStudentId.toLowerCase());
+    let valid = true;
+    let error: string | undefined;
+
+    if (!student) {
+      valid = false;
+      error = `Student ID "${rawStudentId}" not found in portal`;
+    } else if (actor.role === 'BRANCH_COORDINATOR' && actor.branch) {
+      if (student.branch && student.branch.toUpperCase() !== actor.branch.toUpperCase()) {
+        valid = false;
+        error = `Student branch (${student.branch}) does not match coordinator branch (${actor.branch})`;
+      }
+    }
+
+    if (!rawCompany) {
+      valid = false;
+      error = error || 'Company name is missing';
+    }
+
+    if (valid) {
+      validCount++;
+    } else {
+      invalidCount++;
+    }
+
+    rows.push({
+      rowNumber: r,
+      studentId: rawStudentId,
+      name: student?.name || undefined,
+      branch: student?.branch || undefined,
+      cgpa: student?.cgpa,
+      company: rawCompany,
+      role: rawRole || undefined,
+      ctcLpa,
+      packageCategory,
+      valid,
+      error,
+    });
+  }
+
+  return {
+    totalRows: rows.length,
+    validCount,
+    invalidCount,
+    rows,
+  };
+}
+
+/**
+ * Atomically commits a batch of validated student placement records.
+ */
+export async function commitPlacedStudentsBatch(
+  db: Db,
+  actor: ProfileActor,
+  records: Array<{
+    studentId: string;
+    company: string;
+    role?: string;
+    ctcLpa?: number | null;
+    packageCategory?: 'GENERAL' | 'DREAM' | 'INTERNSHIP';
+    driveId?: string | null;
+  }>
+) {
+  let committedCount = 0;
+  const errors: string[] = [];
+
+  for (const rec of records) {
+    try {
+      await recordPlacedStudentManual(db, actor, rec);
+      committedCount++;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to record placement';
+      errors.push(`${rec.studentId}: ${msg}`);
+    }
+  }
+
+  return {
+    success: true,
+    committedCount,
+    failedCount: errors.length,
+    errors,
+    message: `Successfully recorded ${committedCount} student placements.`,
+  };
+}
+
+/**
+ * Unmarks a student as placed.
+ */
+export async function unmarkPlacedStudent(
+  db: Db,
+  actor: ProfileActor,
+  studentUserId: string,
+  driveId: string
+) {
+  // If branch coordinator, verify student belongs to their branch
+  if (actor.role === 'BRANCH_COORDINATOR' && actor.branch) {
+    const [student] = await db.select().from(studentProfiles).where(eq(studentProfiles.userId, studentUserId)).limit(1);
+    if (student && student.branch && student.branch.toUpperCase() !== actor.branch.toUpperCase()) {
+      throw new PortalError('FORBIDDEN', `Access denied: Student belongs to branch ${student.branch}`, 403);
+    }
+  }
+
+  await db
+    .update(applications)
+    .set({ placed: false })
+    .where(and(eq(applications.driveId, driveId), eq(applications.studentUserId, studentUserId)));
+
+  // Recalculate remaining placement offers for this student
+  const remainingPlaced = await db
+    .select({
+      packageCategory: drives.packageCategory,
+    })
+    .from(applications)
+    .innerJoin(drives, eq(applications.driveId, drives.id))
+    .where(and(eq(applications.studentUserId, studentUserId), eq(applications.placed, true)));
+
+  let resolvedStatus: 'UNPLACED' | 'GENERAL' | 'DREAM' | 'INTERNSHIP' = 'UNPLACED';
+  if (remainingPlaced.some((p) => p.packageCategory === 'DREAM')) {
+    resolvedStatus = 'DREAM';
+  } else if (remainingPlaced.some((p) => p.packageCategory === 'GENERAL')) {
+    resolvedStatus = 'GENERAL';
+  } else if (remainingPlaced.some((p) => p.packageCategory === 'INTERNSHIP')) {
+    resolvedStatus = 'INTERNSHIP';
+  }
+
+  await db
+    .update(studentProfiles)
+    .set({ placementStatus: resolvedStatus })
+    .where(eq(studentProfiles.userId, studentUserId));
+
+  await db.insert(auditLogs).values({
+    id: crypto.randomUUID(),
+    actorId: actor.id,
+    studentUserId,
+    field: 'placed',
+    oldValue: 'true',
+    newValue: `false (status: ${resolvedStatus})`,
+    createdAt: new Date(),
+  });
+
+  return {
+    success: true,
+    resolvedPlacementStatus: resolvedStatus,
+    message: 'Student placement status unmarked successfully.',
+  };
+}
+
+/**
+ * Manually sets or overrides a student's placement status.
+ */
+export async function updateStudentPlacementStatus(
+  db: Db,
+  actor: ProfileActor,
+  studentId: string,
+  placementStatus: 'UNPLACED' | 'GENERAL' | 'DREAM' | 'INTERNSHIP'
+) {
+  if (actor.role !== 'MAIN_COORDINATOR' && actor.role !== 'BRANCH_COORDINATOR') {
+    throw new PortalError('FORBIDDEN', 'Only coordinators can update student placement status', 403);
+  }
+
+  const [student] = await db
+    .select()
+    .from(studentProfiles)
+    .where(eq(studentProfiles.studentId, studentId))
+    .limit(1);
+
+  if (!student) {
+    throw new PortalError('NOT_FOUND', `Student with ID "${studentId}" not found`, 404);
+  }
+
+  if (actor.role === 'BRANCH_COORDINATOR' && actor.branch) {
+    if (student.branch && student.branch.toUpperCase() !== actor.branch.toUpperCase()) {
+      throw new PortalError('FORBIDDEN', `Access denied: Student belongs to branch ${student.branch}`, 403);
+    }
+  }
+
+  await db
+    .update(studentProfiles)
+    .set({ placementStatus })
+    .where(eq(studentProfiles.studentId, studentId));
+
+  await db.insert(auditLogs).values({
+    id: crypto.randomUUID(),
+    actorId: actor.id,
+    studentUserId: student.userId,
+    field: 'placementStatus',
+    oldValue: student.placementStatus,
+    newValue: placementStatus,
+    createdAt: new Date(),
+  });
+
+  return {
+    success: true,
+    studentId: student.studentId,
+    placementStatus,
+    message: `Updated placement status for ${student.name || student.studentId} to ${placementStatus}.`,
+  };
+}
+

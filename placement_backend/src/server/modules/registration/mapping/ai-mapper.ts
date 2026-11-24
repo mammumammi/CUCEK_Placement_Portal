@@ -189,8 +189,8 @@ export async function suggestMappingWithAi(
   // 3. Resolve client or verify API key / credentials
   let client = deps?.client;
   if (!client) {
-    const apiKey = env.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-    const credsRaw = env.GEMINI_CREDENTIALS || process.env.GEMINI_CREDENTIALS;
+    const apiKey = 'GEMINI_API_KEY' in process.env ? process.env.GEMINI_API_KEY : env.GEMINI_API_KEY;
+    const credsRaw = 'GEMINI_CREDENTIALS' in process.env ? process.env.GEMINI_CREDENTIALS : env.GEMINI_CREDENTIALS;
 
     if (apiKey && apiKey.trim() !== '') {
       try {

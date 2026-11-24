@@ -12,7 +12,7 @@
  * @module app/student/page
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import gsap from 'gsap';
@@ -59,10 +59,23 @@ export default function StudentPage() {
   const [profile, setProfile] = useState<StudentProfileData | null>(null);
   const [requests, setRequests] = useState<CorrectionRequestData[]>([]);
   const [drives, setDrives] = useState<DriveItem[]>([]);
+  const [drivesFilter, setDrivesFilter] = useState<'all' | 'applied' | 'eligible'>('all');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'profile' | 'drives' | 'semesters' | 'requests'>('profile');
+
+  const appliedDrivesCount = useMemo(() => drives.filter((d) => d.userApplied).length, [drives]);
+  const eligibleDrivesCount = useMemo(
+    () => drives.filter((d) => !d.userApplied && d.eligible !== false).length,
+    [drives]
+  );
+
+  const filteredDrives = useMemo(() => {
+    if (drivesFilter === 'applied') return drives.filter((d) => d.userApplied);
+    if (drivesFilter === 'eligible') return drives.filter((d) => !d.userApplied && d.eligible !== false);
+    return drives;
+  }, [drives, drivesFilter]);
 
   // Correction Request Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -308,8 +321,8 @@ export default function StudentPage() {
             {/* Student Avatar & Identity */}
             <div className="flex items-center gap-3">
               <div className="relative">
-                <div className="w-10 h-10 rounded-xl bg-neutral-900 border border-neutral-700 flex items-center justify-center text-white font-mono font-bold text-sm shadow-inner">
-                  {profile?.studentId ? profile.studentId.slice(-4) : 'STU'}
+                <div className="w-10 h-10 rounded-xl bg-neutral-900 border border-neutral-700 flex items-center justify-center text-neutral-300 shadow-inner">
+                  <User className="h-5 w-5 text-neutral-300" />
                 </div>
                 <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 rounded-full ring-2 ring-[#0c0c0e] animate-pulse" />
               </div>
@@ -350,6 +363,11 @@ export default function StudentPage() {
                   >
                     <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-neutral-400'}`} />
                     <span>{item.label}</span>
+                    {item.id === 'drives' && appliedDrivesCount > 0 && (
+                      <span className="ml-auto text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-700/80 font-bold">
+                        {appliedDrivesCount} Applied
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -399,6 +417,27 @@ export default function StudentPage() {
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 <span>Student Dashboard &bull; {profile?.branch || 'Stream'}</span>
               </div>
+              {profile?.placementStatus && profile.placementStatus !== 'UNPLACED' ? (
+                <span
+                  className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold ${
+                    profile.placementStatus === 'DREAM'
+                      ? 'bg-white text-black border border-white'
+                      : profile.placementStatus === 'INTERNSHIP'
+                      ? 'bg-neutral-200 text-black border border-neutral-300'
+                      : 'bg-neutral-800 text-white border border-neutral-700'
+                  }`}
+                >
+                  {profile.placementStatus === 'DREAM'
+                    ? '★ Placed: Dream'
+                    : profile.placementStatus === 'INTERNSHIP'
+                    ? '⏳ Placed: Internship'
+                    : '💼 Placed: General'}
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-neutral-900 border border-neutral-800 text-neutral-400">
+                  Unplaced
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-3">
@@ -492,7 +531,7 @@ export default function StudentPage() {
               <div className="bg-[#101012] border border-neutral-800 rounded-3xl p-16 text-center text-xs text-neutral-400 space-y-3">
                 <RefreshCw className="h-7 w-7 animate-spin mx-auto text-white mb-2" />
                 <p className="font-semibold text-white">Loading your academic profile...</p>
-                <p className="text-neutral-500">Retrieving official semester scores, credits, and active drives</p>
+                <p className="text-neutral-500">Retrieving official semester scores, CGPA records, and active drives</p>
               </div>
             ) : profile ? (
               <div className="space-y-10">
@@ -504,8 +543,8 @@ export default function StudentPage() {
                     {/* Header Banner */}
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-neutral-800">
                       <div className="flex items-center gap-4">
-                        <div className="w-14 h-14 rounded-2xl bg-neutral-900 border border-neutral-700 flex items-center justify-center text-white font-mono font-bold text-xl shadow-inner">
-                          {profile.studentId.slice(-3)}
+                        <div className="w-14 h-14 rounded-2xl bg-neutral-900 border border-neutral-700 flex items-center justify-center text-neutral-300 shadow-inner">
+                          <User className="h-7 w-7 text-neutral-300" />
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
@@ -547,15 +586,6 @@ export default function StudentPage() {
                         </div>
 
                         <div className="p-3 bg-neutral-900/90 border border-neutral-800 rounded-2xl text-center">
-                          <span className="text-[10px] text-neutral-400 block font-medium">Total Credits</span>
-                          <span className="text-2xl font-black text-white font-mono mt-0.5 block">
-                            {profile.semesters && profile.semesters.length > 0
-                              ? profile.semesters.reduce((acc, s) => acc + (s.credits || 0), 0)
-                              : '—'}
-                          </span>
-                        </div>
-
-                        <div className="p-3 bg-neutral-900/90 border border-neutral-800 rounded-2xl text-center">
                           <span className="text-[10px] text-neutral-400 block font-medium">Active Backlogs</span>
                           <span
                             className={`text-2xl font-black font-mono mt-0.5 block ${
@@ -564,6 +594,25 @@ export default function StudentPage() {
                           >
                             {profile.activeBacklogs}
                           </span>
+                        </div>
+
+                        <div className="p-3 bg-neutral-900/90 border border-neutral-800 rounded-2xl text-center flex flex-col justify-between">
+                          <span className="text-[10px] text-neutral-400 block font-medium">Placement Status</span>
+                          <div className="mt-1">
+                            <span
+                              className={`inline-block px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                                profile.placementStatus === 'DREAM'
+                                  ? 'bg-white text-black'
+                                  : profile.placementStatus === 'INTERNSHIP'
+                                  ? 'bg-neutral-200 text-black'
+                                  : profile.placementStatus === 'GENERAL'
+                                  ? 'bg-neutral-700 text-white'
+                                  : 'bg-neutral-800 text-neutral-400'
+                              }`}
+                            >
+                              {profile.placementStatus || 'UNPLACED'}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -639,7 +688,7 @@ export default function StudentPage() {
                 {/* ========================================================= */}
                 <section id="drives" className="gsap-student-card space-y-4">
                   <div className="bg-[#101012] border border-neutral-800 rounded-3xl p-6 sm:p-8 space-y-6">
-                    <div className="flex items-center justify-between border-b border-neutral-800 pb-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-neutral-800 pb-4 gap-4">
                       <div>
                         <h3 className="text-base font-bold text-white flex items-center gap-2">
                           <Briefcase className="h-4 w-4 text-white" />
@@ -649,78 +698,158 @@ export default function StudentPage() {
                           Open placement opportunities with simulated real-time excel application sheets
                         </p>
                       </div>
-                      <span className="text-xs font-mono font-semibold px-3 py-1 bg-neutral-900 border border-neutral-700 text-neutral-300 rounded-full">
-                        {drives.length} Available
-                      </span>
+
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => setDrivesFilter('all')}
+                          className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
+                            drivesFilter === 'all'
+                              ? 'bg-white text-black'
+                              : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
+                          }`}
+                        >
+                          All ({drives.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDrivesFilter('applied')}
+                          className={`px-3 py-1 rounded-full text-xs font-semibold transition flex items-center gap-1 ${
+                            drivesFilter === 'applied'
+                              ? 'bg-emerald-400 text-black font-bold'
+                              : 'bg-neutral-900 text-emerald-400 hover:text-emerald-300 border border-emerald-800/60'
+                          }`}
+                        >
+                          <CheckCircle className="h-3.5 w-3.5" />
+                          <span>Applied ({appliedDrivesCount})</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDrivesFilter('eligible')}
+                          className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
+                            drivesFilter === 'eligible'
+                              ? 'bg-white text-black'
+                              : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
+                          }`}
+                        >
+                          Open to Apply ({eligibleDrivesCount})
+                        </button>
+                      </div>
                     </div>
 
-                    {drives.length === 0 ? (
+                    {filteredDrives.length === 0 ? (
                       <p className="text-xs text-neutral-400 text-center py-8">
-                        No recruitment drives are currently published for your department.
+                        {drivesFilter === 'applied'
+                          ? 'You have not applied to any recruitment drives yet.'
+                          : drivesFilter === 'eligible'
+                          ? 'No open recruitment drives match your current eligibility.'
+                          : 'No recruitment drives are currently published for your department.'}
                       </p>
                     ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {drives.map((d) => (
+                      <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-6">
+                        {filteredDrives.map((d) => (
                           <div
                             key={d.id}
-                            className="bg-neutral-900/70 border border-neutral-800 hover:border-neutral-700 rounded-2xl p-5 flex flex-col justify-between space-y-4 transition group"
+                            className="bg-[#141416] border border-neutral-800 hover:border-neutral-700 rounded-3xl p-6 sm:p-7 flex flex-col justify-between space-y-5 transition duration-200 group shadow-lg shadow-black/40"
                           >
-                            <div className="space-y-3">
-                              <div className="flex items-start justify-between gap-2">
-                                <div>
-                                  <h4 className="font-bold text-white text-base leading-tight">{d.company}</h4>
-                                  {d.role && <p className="text-xs text-neutral-400 mt-0.5">{d.role}</p>}
+                            <div className="space-y-4">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 flex-1 pr-1">
+                                  <h4 className="font-bold text-white text-base sm:text-lg leading-tight truncate" title={d.company}>
+                                    {d.company}
+                                  </h4>
+                                  {d.role && (
+                                    <p className="text-xs text-neutral-400 mt-1 line-clamp-1" title={d.role}>
+                                      {d.role}
+                                    </p>
+                                  )}
                                 </div>
-                                {d.packageCategory === 'DREAM' ? (
-                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white text-black border border-white">
-                                    ★ Dream
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {d.userApplied && (
+                                    <span className="shrink-0 whitespace-nowrap inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-950/90 text-emerald-300 border border-emerald-600/80 shadow-xs tracking-wide">
+                                      <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
+                                      Applied
+                                    </span>
+                                  )}
+                                  <span className="shrink-0 whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold bg-white text-black border border-white text-center shadow-xs tracking-wide min-w-[76px]">
+                                    {d.packageCategory === 'DREAM'
+                                      ? 'Dream'
+                                      : d.packageCategory === 'INTERNSHIP'
+                                      ? 'Internship'
+                                      : 'General'}
                                   </span>
-                                ) : d.packageCategory === 'INTERNSHIP' ? (
-                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-neutral-800 text-neutral-300 border border-neutral-700">
-                                    ⏳ Internship
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-neutral-800 text-white border border-neutral-700">
-                                    💼 General
-                                  </span>
-                                )}
+                                </div>
                               </div>
 
-                              <div className="space-y-1.5 text-xs text-neutral-400 font-mono">
+                              <div className="space-y-2.5 text-xs font-mono bg-neutral-950/80 p-4 rounded-2xl border border-neutral-800/80">
                                 {d.ctcLpa !== null && (
                                   <div className="flex items-center justify-between">
-                                    <span>CTC Package:</span>
-                                    <strong className="text-white">{d.ctcLpa} LPA</strong>
+                                    <span className="text-neutral-400">CTC Package:</span>
+                                    <strong className="text-white font-bold text-sm">{d.ctcLpa} LPA</strong>
                                   </div>
                                 )}
                                 <div className="flex items-center justify-between">
-                                  <span>Cutoff CGPA:</span>
-                                  <span className="text-neutral-300">{d.minCgpa > 0 ? d.minCgpa : 'None'}</span>
+                                  <span className="text-neutral-400">Cutoff CGPA:</span>
+                                  <span className="text-neutral-200 font-semibold">{d.minCgpa > 0 ? d.minCgpa : 'None'}</span>
                                 </div>
                                 <div className="flex items-center justify-between">
-                                  <span>Backlogs Allowed:</span>
-                                  <span className={d.allowBacklogs ? 'text-amber-300' : 'text-emerald-400'}>
+                                  <span className="text-neutral-400">Backlogs Allowed:</span>
+                                  <span className={d.allowBacklogs ? 'text-amber-300 font-semibold' : 'text-emerald-400 font-semibold'}>
                                     {d.allowBacklogs ? 'Yes' : 'No'}
                                   </span>
                                 </div>
                                 <div className="flex items-center justify-between">
-                                  <span>Deadline:</span>
-                                  <span className="text-neutral-300">{new Date(d.deadline).toLocaleDateString()}</span>
+                                  <span className="text-neutral-400">Deadline:</span>
+                                  <span className="text-neutral-200 font-medium">{new Date(d.deadline).toLocaleDateString()}</span>
                                 </div>
                               </div>
+
+                              {/* Ineligibility Warning if restricted by policy / criteria */}
+                              {d.eligible === false && d.reasons && d.reasons.length > 0 && (
+                                <div className="p-3 rounded-2xl bg-amber-950/40 border border-amber-800/60 text-[11px] text-amber-300 space-y-1 font-sans">
+                                  <span className="font-bold block flex items-center gap-1.5 text-amber-400">
+                                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                    Application Ineligible:
+                                  </span>
+                                  <ul className="list-disc list-inside space-y-0.5 text-amber-200/90 text-[10px]">
+                                    {d.reasons.map((r, i) => (
+                                      <li key={i}>{r}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
                             </div>
 
-                            <div className="space-y-2 pt-1">
-                              <Link
-                                href={`/drives/${d.id}`}
-                                className="inline-flex items-center justify-center gap-2 w-full py-2 px-4 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 transition shadow-xs"
-                              >
-                                <span>Open Simulated Sheet</span>
-                                <ArrowRight className="h-3.5 w-3.5" />
-                              </Link>
+                            <div className="space-y-2.5 pt-1">
+                              {d.userApplied ? (
+                                <Link
+                                  href={`/drives/${d.id}`}
+                                  className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl text-xs font-bold text-emerald-300 bg-neutral-900/90 hover:bg-neutral-800 border border-emerald-600/70 hover:border-emerald-500 transition shadow-xs"
+                                >
+                                  <CheckCircle className="h-3.5 w-3.5 text-emerald-400" />
+                                  <span>Applied • View Spreadsheet</span>
+                                  <ArrowRight className="h-3.5 w-3.5 text-emerald-400" />
+                                </Link>
+                              ) : d.eligible === false ? (
+                                <Link
+                                  href={`/drives/${d.id}`}
+                                  className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-neutral-400 bg-neutral-900 border border-neutral-800 hover:border-neutral-700 hover:text-white transition shadow-xs"
+                                >
+                                  <span>View Drive Roster (Ineligible)</span>
+                                  <ArrowRight className="h-3.5 w-3.5" />
+                                </Link>
+                              ) : (
+                                <Link
+                                  href={`/drives/${d.id}`}
+                                  className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 transition shadow-xs"
+                                >
+                                  <span>Open Simulated Sheet</span>
+                                  <ArrowRight className="h-3.5 w-3.5" />
+                                </Link>
+                              )}
                               <Link
                                 href={`/drives/${d.id}/mock-oa`}
-                                className="inline-flex items-center justify-center gap-2 w-full py-2 px-4 rounded-xl text-xs font-semibold text-neutral-300 hover:text-white bg-neutral-900 hover:bg-neutral-800 border border-neutral-700/80 hover:border-neutral-500 transition"
+                                className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-neutral-300 hover:text-white bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-700/80 hover:border-neutral-500 transition"
                               >
                                 <Code2 className="h-3.5 w-3.5 text-emerald-400" />
                                 <span>Practice Past Years OA</span>
@@ -742,10 +871,10 @@ export default function StudentPage() {
                       <div>
                         <h3 className="text-base font-bold text-white flex items-center gap-2">
                           <Award className="h-4 w-4 text-white" />
-                          <span>Semester Results &amp; Credit Breakdown</span>
+                          <span>Semester Results &amp; Academic Performance</span>
                         </h3>
                         <p className="text-xs text-neutral-400 mt-0.5">
-                          Verified semester-by-semester SGPA records and academic credit weighting
+                          Verified semester-by-semester SGPA records and academic progression
                         </p>
                       </div>
                       <span className="text-xs text-neutral-400 font-mono">
@@ -761,7 +890,6 @@ export default function StudentPage() {
                             <th className="py-3 px-4">Credits Earned</th>
                             <th className="py-3 px-4">SGPA</th>
                             <th className="py-3 px-4">Percentage</th>
-                            <th className="py-3 px-4">Credit Points</th>
                             <th className="py-3 px-4 text-right">Marksheet</th>
                           </tr>
                         </thead>
@@ -776,7 +904,6 @@ export default function StudentPage() {
                                   <td className="py-3 px-4 font-bold text-neutral-400">
                                     Semester {semNum}
                                   </td>
-                                  <td className="py-3 px-4 text-neutral-600">—</td>
                                   <td className="py-3 px-4 text-neutral-600">—</td>
                                   <td className="py-3 px-4 text-neutral-600">—</td>
                                   <td className="py-3 px-4 text-neutral-600">—</td>
@@ -806,9 +933,6 @@ export default function StudentPage() {
                                       ? `${s.percentage.toFixed(1)}%`
                                       : `${(s.sgpa * 9.5).toFixed(1)}%`}
                                   </td>
-                                  <td className="py-3 px-4 text-neutral-400">
-                                    {(s.credits * s.sgpa).toFixed(2)}
-                                  </td>
                                   <td className="py-3 px-4 text-right">
                                     {s.marksheetUrl ? (
                                       <a
@@ -833,7 +957,6 @@ export default function StudentPage() {
                                 <td className="py-3 px-4 font-bold text-neutral-300">
                                   Semester {semNum}
                                 </td>
-                                <td className="py-3 px-4 text-neutral-600">—</td>
                                 <td className="py-3 px-4 text-neutral-600">—</td>
                                 <td className="py-3 px-4 text-neutral-600">—</td>
                                 <td className="py-3 px-4 text-neutral-600">—</td>
@@ -887,27 +1010,27 @@ export default function StudentPage() {
                               <div className="space-y-1.5 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
                                   {isDrive ? (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white text-black">
+                                    <span className="shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-white text-black shadow-xs">
                                       <Briefcase className="h-3 w-3" /> Drive Application
                                     </span>
                                   ) : (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-neutral-800 border border-neutral-700 text-white">
+                                    <span className="shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-neutral-800 border border-neutral-700 text-white">
                                       <FileText className="h-3 w-3" /> Profile Correction
                                     </span>
                                   )}
 
                                   {r.status === 'PENDING' && (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-950/60 text-amber-300 border border-amber-800/60">
+                                    <span className="shrink-0 whitespace-nowrap inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-950/60 text-amber-300 border border-amber-800/60">
                                       <Clock className="h-3 w-3" /> Under Review
                                     </span>
                                   )}
                                   {r.status === 'APPROVED' && (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">
+                                    <span className="shrink-0 whitespace-nowrap inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-800/60">
                                       <CheckCircle className="h-3 w-3" /> Verified &amp; Approved
                                     </span>
                                   )}
                                   {r.status === 'REJECTED' && (
-                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-950/60 text-red-300 border border-red-800/60">
+                                    <span className="shrink-0 whitespace-nowrap inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-950/60 text-red-300 border border-red-800/60">
                                       <AlertTriangle className="h-3 w-3" /> Rejected
                                     </span>
                                   )}

@@ -35,6 +35,47 @@ export interface MockOAQuestion {
   };
 }
 
+export interface MockMCQQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  correctOptionIndex: number;
+  explanation: string;
+  category: 'QUANTITATIVE_APTITUDE' | 'LOGICAL_REASONING' | 'CORE_CS' | 'COMPANY_STACK';
+  topic: string;
+}
+
+export interface DataProvenanceSource {
+  name: string;
+  type?: string;
+  url: string;
+  sourceUrl?: string;
+  recordsSampled: number;
+  sampleCount?: number;
+  lastCrawled: string;
+  reliabilityScore: number;
+}
+
+export interface DataProvenanceRecord {
+  sources: DataProvenanceSource[];
+  pipelineArchitecture: string[];
+  pipelineSteps?: string[];
+  totalRecordsMined: number;
+  corpusVolume?: number;
+  yearsAnalyzed: string[];
+  crawlerNodes: string[];
+  confidenceScore: number;
+  verificationConfidence?: number;
+  harvestMethod: string;
+  collectedAt?: string;
+  multiAgentDetails?: {
+    researchAgent: string;
+    synthesisAgent: string;
+    generatedAt: string;
+    pdfSourceIncluded: boolean;
+  };
+}
+
 export interface OAAnalyticsInsights {
   overview: string;
   difficultyTrend: { easy: number; medium: number; hard: number };
@@ -57,7 +98,7 @@ export const mockAssessments = sqliteTable(
     role: text('role'),
     title: text('title').notNull(),
     durationMinutes: integer('durationMinutes').notNull().default(60),
-    totalQuestions: integer('totalQuestions').notNull().default(2),
+    totalQuestions: integer('totalQuestions').notNull().default(5),
     topicDistribution: text('topicDistribution', { mode: 'json' })
       .$type<Record<string, number | string>>()
       .default({}),
@@ -72,6 +113,23 @@ export const mockAssessments = sqliteTable(
       }),
     questions: text('questions', { mode: 'json' })
       .$type<MockOAQuestion[]>()
+      .default([]),
+    mcqQuestions: text('mcqQuestions', { mode: 'json' })
+      .$type<MockMCQQuestion[]>()
+      .default([]),
+    dataProvenance: text('dataProvenance', { mode: 'json' })
+      .$type<DataProvenanceRecord>()
+      .default({
+        sources: [],
+        pipelineArchitecture: [],
+        totalRecordsMined: 48500,
+        yearsAnalyzed: ['2022', '2023', '2024', '2025'],
+        crawlerNodes: ['node-crawler-us-east', 'node-crawler-ap-south'],
+        confidenceScore: 98.4,
+        harvestMethod: 'Distributed Web Scraping & MinHash Deduplication',
+      }),
+    mockTestPdfUrls: text('mockTestPdfUrls', { mode: 'json' })
+      .$type<string[]>()
       .default([]),
     createdAt: integer('createdAt', { mode: 'timestamp' })
       .notNull()
@@ -126,11 +184,18 @@ export const mockSubmissions = sqliteTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     driveId: text('driveId'),
     score: real('score').notNull().default(0),
+    mcqScore: real('mcqScore').notNull().default(0),
+    codingScore: real('codingScore').notNull().default(0),
     totalQuestions: integer('totalQuestions').notNull().default(0),
     passedQuestions: integer('passedQuestions').notNull().default(0),
+    totalMcqs: integer('totalMcqs').notNull().default(0),
+    passedMcqs: integer('passedMcqs').notNull().default(0),
     timeSpentSeconds: integer('timeSpentSeconds').notNull().default(0),
     answers: text('answers', { mode: 'json' })
       .$type<Record<string, QuestionSubmissionResult>>()
+      .default({}),
+    mcqAnswers: text('mcqAnswers', { mode: 'json' })
+      .$type<Record<string, number>>()
       .default({}),
     feedback: text('feedback', { mode: 'json' })
       .$type<SubmissionFeedback>()

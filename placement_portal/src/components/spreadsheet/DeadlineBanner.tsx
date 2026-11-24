@@ -31,11 +31,11 @@ export function DeadlineBanner({ deadline }: DeadlineBannerProps) {
   return (
     <div
       role="alert"
-      className="bg-red-50 border-l-4 border-red-500 p-4 text-red-700 font-medium rounded-md shadow-sm mb-4 flex items-center justify-between"
+      className="bg-red-950/40 border-l-4 border-red-500 p-4 text-red-300 font-medium rounded-xl border border-red-800/60 shadow-sm mb-4 flex items-center justify-between"
     >
       <div className="flex items-center gap-2">
         <svg
-          className="w-5 h-5 text-red-500 shrink-0"
+          className="w-5 h-5 text-red-400 shrink-0"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"

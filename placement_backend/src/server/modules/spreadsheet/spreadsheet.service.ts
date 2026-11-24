@@ -225,7 +225,7 @@ export async function applyToDrive(
     throw new PortalError('DEADLINE_PASSED', 'Drive application deadline has passed', 403);
   }
 
-  // 2. Fetch student profile
+  // 2. Fetch student profile and placed offers
   const [profile] = await db
     .select()
     .from(studentProfiles)
@@ -236,8 +236,28 @@ export async function applyToDrive(
     throw new PortalError('NOT_FOUND', 'Student academic profile not found', 404);
   }
 
+  const placedApps = await db
+    .select({ packageCategory: drives.packageCategory })
+    .from(applications)
+    .innerJoin(drives, eq(applications.driveId, drives.id))
+    .where(and(eq(applications.studentUserId, actor.id), eq(applications.placed, true)));
+
   // 3. Evaluate eligibility
-  const eligibility = evaluateEligibility(profile, drive);
+  const eligibility = evaluateEligibility(
+    {
+      branch: profile.branch,
+      cgpa: profile.cgpa,
+      activeBacklogs: profile.activeBacklogs,
+      placementStatus: profile.placementStatus,
+      placedCategories: placedApps.map((p) => p.packageCategory || 'GENERAL'),
+    },
+    {
+      eligibleBranches: drive.eligibleBranches,
+      minCgpa: drive.minCgpa,
+      maxActiveBacklogs: drive.maxActiveBacklogs,
+      packageCategory: drive.packageCategory,
+    }
+  );
   if (!eligibility.eligible) {
     throw new PortalError(
       'INELIGIBLE',

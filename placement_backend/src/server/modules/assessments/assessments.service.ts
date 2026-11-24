@@ -23,6 +23,7 @@ import { evaluateCodeAgainstTestCases, type CodeExecutionResult } from './code-r
 import type { RunCodeInput, SubmitAssessmentInput } from './assessments.schema';
 import { GoogleGenAI } from '@google/genai';
 import { env } from '@/server/config/env';
+import { generateMultiAgentMockOA } from './multi-agent-generator.service';
 
 /**
  * Pre-compiled, authentic historical OA question banks synthesized from 2022-2025 web archives
@@ -578,64 +579,13 @@ export async function generateDriveMockOA(
     throw new PortalError('NOT_FOUND', `Recruitment drive "${driveId}" not found`, 404);
   }
 
-  const templateKey = resolveTemplateKey(drive.company);
-  const baseConfig = COMPANY_OA_TEMPLATES[templateKey] || COMPANY_OA_TEMPLATES.default;
-
-  let assessmentTitle = `${drive.company} ${drive.role || 'Software Engineering'} Online Assessment (OA) Simulation`;
-  let duration = baseConfig.durationMinutes;
-  let topicDist = baseConfig.topicDistribution;
-  let insights = baseConfig.analyticsInsights;
-  let questions = baseConfig.questions;
-
-  // 3. Optionally enrich or generate tailored questions using Gemini AI if API key is present
-  try {
-    const apiKey = env.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
-    if (apiKey && apiKey.trim() !== '') {
-      const client = new GoogleGenAI({ apiKey });
-      const prompt = `You are a Big Data Technical Interview Intelligence system.
-Analyze the past 3 years (2022-2025) of Online Assessment (OA) questions, test formats, and coding rounds for ${drive.company} for the role of "${drive.role || 'Software Engineer'}".
-
-Job Description Context:
-${drive.description || `${drive.company} campus hiring`}
-
-Synthesize previous years' web data into an accurate OA round simulation with:
-- exactDurationMinutes: typical test duration (e.g. 60 or 70)
-- topicDistribution: map of topics to percentage (e.g. {"Dynamic Programming": "40%", "Graphs": "30%"})
-- analyticsInsights: { overview, frequentTopics, companyOAPattern, difficultyTrend: {easy, medium, hard} }
-
-Return strictly valid JSON matching this schema:
-{
-  "title": "${drive.company} Previous Years OA Simulation",
-  "durationMinutes": number,
-  "topicDistribution": { "Topic": "Percentage%" },
-  "analyticsInsights": {
-    "overview": "string",
-    "difficultyTrend": { "easy": number, "medium": number, "hard": number },
-    "frequentTopics": ["string"],
-    "companyOAPattern": "string",
-    "recentYearsAnalyzed": ["2023", "2024", "2025"]
-  }
-}`;
-
-      const res = await client.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: { responseMimeType: 'application/json' },
-      });
-
-      const text = res.text?.trim();
-      if (text) {
-        const cleaned = text.replace(/^```json/, '').replace(/```$/, '').trim();
-        const parsed = JSON.parse(cleaned);
-        if (parsed.durationMinutes) duration = parsed.durationMinutes;
-        if (parsed.topicDistribution) topicDist = parsed.topicDistribution;
-        if (parsed.analyticsInsights) insights = parsed.analyticsInsights;
-        if (parsed.title) assessmentTitle = parsed.title;
-      }
-    }
-  } catch {
-    // Graceful fallback to verified curated repository
-  }
+  // 3. Multi-agent execution pipeline: Agent 1 (Web Mining & Retrieval) -> Agent 2 (Synthesis & Authoring)
+  const multiAgentResult = await generateMultiAgentMockOA(
+    drive.company,
+    drive.role || 'Software Engineer',
+    drive.description || '',
+    drive.mockTestPdfUrls || []
+  );
 
   // 4. Save to database
   const assessmentId = crypto.randomUUID();
@@ -650,12 +600,15 @@ Return strictly valid JSON matching this schema:
     driveId: drive.id,
     company: drive.company,
     role: drive.role,
-    title: assessmentTitle,
-    durationMinutes: duration,
-    totalQuestions: questions.length,
-    topicDistribution: topicDist,
-    analyticsInsights: insights,
-    questions,
+    title: multiAgentResult.title,
+    durationMinutes: multiAgentResult.durationMinutes,
+    totalQuestions: multiAgentResult.questions.length,
+    topicDistribution: multiAgentResult.topicDistribution,
+    analyticsInsights: multiAgentResult.analyticsInsights,
+    questions: multiAgentResult.questions,
+    mcqQuestions: multiAgentResult.mcqQuestions,
+    dataProvenance: multiAgentResult.dataProvenance,
+    mockTestPdfUrls: multiAgentResult.mockTestPdfUrls,
     createdAt: new Date(),
   });
 
@@ -678,11 +631,22 @@ export async function getDriveMockOA(db: Db, driveId: string) {
     .where(eq(mockAssessments.driveId, driveId))
     .limit(1);
 
-  if (existing) {
+  // Return existing only if it has complete 30 MCQs, 5 coding problems, and non-empty dataProvenance sources
+  if (
+    existing &&
+    Array.isArray(existing.mcqQuestions) &&
+    existing.mcqQuestions.length >= 30 &&
+    Array.isArray(existing.questions) &&
+    existing.questions.length >= 5 &&
+    existing.dataProvenance &&
+    typeof existing.dataProvenance === 'object' &&
+    Array.isArray(existing.dataProvenance.sources) &&
+    existing.dataProvenance.sources.length > 0
+  ) {
     return existing;
   }
 
-  return generateDriveMockOA(db, driveId);
+  return generateDriveMockOA(db, driveId, { force: true });
 }
 
 /**
@@ -808,10 +772,33 @@ export async function submitMockAssessment(
     };
   }
 
-  const score =
+  // Grade MCQs
+  const mcqs = assessment.mcqQuestions || [];
+  let passedMcqsCount = 0;
+  const studentMcqAnswers = input.mcqAnswers || {};
+
+  for (const mcq of mcqs) {
+    if (
+      studentMcqAnswers[mcq.id] !== undefined &&
+      Number(studentMcqAnswers[mcq.id]) === mcq.correctOptionIndex
+    ) {
+      passedMcqsCount++;
+    }
+  }
+
+  const mcqScore = mcqs.length > 0 ? Number(((passedMcqsCount / mcqs.length) * 100).toFixed(1)) : 0;
+  const codingScore =
     totalTestCasesAcrossAll > 0
       ? Number(((totalPassedTestCasesAcrossAll / totalTestCasesAcrossAll) * 100).toFixed(1))
       : 0;
+
+  // Composite score: 40% MCQs + 60% Coding if both present, or single score if only one present
+  let score = codingScore;
+  if (mcqs.length > 0 && questions.length > 0) {
+    score = Number((0.4 * mcqScore + 0.6 * codingScore).toFixed(1));
+  } else if (mcqs.length > 0) {
+    score = mcqScore;
+  }
 
   // Calculate percentile estimate based on score and time taken
   let percentile = 40;
@@ -830,15 +817,21 @@ export async function submitMockAssessment(
     areasForImprovement.push('Focus on input parsing and ensuring solution functions return expected format.');
   }
 
+  if (mcqs.length > 0 && passedMcqsCount >= Math.floor(mcqs.length * 0.7)) {
+    strengths.push(`Solid technical & aptitude foundation (${passedMcqsCount}/${mcqs.length} MCQs answered correctly).`);
+  } else if (mcqs.length > 0) {
+    areasForImprovement.push('Review Computer Science core fundamentals (OS, DBMS, Computer Networks) and Aptitude speed.');
+  }
+
   if (score < 100) {
     areasForImprovement.push('Handle edge cases such as empty arrays, boundary values, and extreme constraints.');
     areasForImprovement.push('Review optimal space-time complexities to prevent Time Limit Exceeded (TLE).');
   } else {
-    strengths.push('Outstanding performance! All hidden boundary and stress test cases passed.');
+    strengths.push('Outstanding performance! All boundary test cases and MCQs passed.');
   }
 
   const feedback: SubmissionFeedback = {
-    summary: `Completed ${passedQuestionsCount} of ${questions.length} questions successfully with a score of ${score}%. Estimated performance places you in the top ${100 - percentile}% of applicants for ${assessment.company}.`,
+    summary: `Completed ${passedQuestionsCount} of ${questions.length} coding questions and answered ${passedMcqsCount} of ${mcqs.length} MCQs correctly with an overall score of ${score}%. Estimated performance places you in the top ${100 - percentile}% of applicants for ${assessment.company}.`,
     strengths,
     areasForImprovement,
     percentileEstimate: percentile,
@@ -853,10 +846,15 @@ export async function submitMockAssessment(
     studentUserId,
     driveId: assessment.driveId,
     score,
+    mcqScore,
+    codingScore,
     totalQuestions: questions.length,
     passedQuestions: passedQuestionsCount,
+    totalMcqs: mcqs.length,
+    passedMcqs: passedMcqsCount,
     timeSpentSeconds: input.timeSpentSeconds,
     answers: answersResults,
+    mcqAnswers: studentMcqAnswers,
     feedback,
     submittedAt: now,
   });

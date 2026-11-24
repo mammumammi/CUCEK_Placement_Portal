@@ -35,6 +35,53 @@ export interface MockOAQuestion {
   };
 }
 
+export interface MockMCQQuestion {
+  id: string;
+  questionNumber: number;
+  category: 'QUANTITATIVE_APTITUDE' | 'LOGICAL_REASONING' | 'CORE_CS' | 'COMPANY_STACK';
+  question: string;
+  options: [string, string, string, string];
+  correctOptionIndex?: number;
+  explanation?: string;
+}
+
+export interface DataProvenanceSource {
+  name: string;
+  type?: string;
+  sampleCount?: number;
+  recordsSampled?: number;
+  sourceUrl?: string;
+  url?: string;
+  lastCrawled: string;
+  reliabilityScore: number;
+}
+
+export interface DataProvenanceRecord {
+  collectedAt?: string;
+  corpusVolume?: number;
+  totalRecordsMined?: number;
+  sources: DataProvenanceSource[];
+  crawlerNodes: string[];
+  pipelineSteps?: string[];
+  pipelineArchitecture?: string[];
+  verificationConfidence?: number;
+  confidenceScore?: number;
+  harvestMethod?: string;
+  multiAgentMetadata?: {
+    researchAgentModel?: string;
+    synthesisAgentModel?: string;
+    totalCodingGenerated?: number;
+    totalMcqsGenerated?: number;
+    mockPdfAttached?: boolean;
+  };
+  multiAgentDetails?: {
+    researchAgent: string;
+    synthesisAgent: string;
+    generatedAt: string;
+    pdfSourceIncluded: boolean;
+  };
+}
+
 export interface OAAnalyticsInsights {
   overview: string;
   difficultyTrend: { easy: number; medium: number; hard: number };
@@ -54,6 +101,9 @@ export interface MockAssessmentData {
   topicDistribution: Record<string, number | string>;
   analyticsInsights: OAAnalyticsInsights;
   questions: MockOAQuestion[];
+  mcqQuestions?: MockMCQQuestion[];
+  dataProvenance?: DataProvenanceRecord;
+  mockTestPdfUrls?: string[];
   createdAt: string;
 }
 
@@ -133,13 +183,14 @@ export interface RunCodeResponse {
 
 export interface SubmitAnswersPayload {
   timeSpentSeconds: number;
-  answers: Record<
+  answers?: Record<
     string,
     {
       language: 'javascript' | 'python' | 'java' | 'cpp';
       code: string;
     }
   >;
+  mcqAnswers?: Record<string, number>;
 }
 
 export interface QuestionSubmissionResult {
@@ -171,10 +222,15 @@ export interface MockSubmissionData {
   studentUserId: string;
   driveId: string | null;
   score: number;
+  mcqScore?: number;
+  codingScore?: number;
   totalQuestions: number;
   passedQuestions: number;
+  totalMcqs?: number;
+  passedMcqs?: number;
   timeSpentSeconds: number;
   answers: Record<string, QuestionSubmissionResult>;
+  mcqAnswers?: Record<string, number>;
   feedback: SubmissionFeedback;
   submittedAt: string;
 }
@@ -253,4 +309,26 @@ export async function getMySubmissions(
     `/assessments/${assessmentId}/submissions/me`
   );
   return response.data.submissions;
+}
+
+/**
+ * Uploads a reference mock test PDF for a recruitment drive to guide multi-agent OA synthesis.
+ */
+export async function uploadMockTestPdf(
+  driveId: string,
+  file: File
+): Promise<{ success: boolean; driveId: string; mockTestPdfUrls: string[]; message?: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await apiClient.post<{
+    success: boolean;
+    driveId: string;
+    mockTestPdfUrls: string[];
+    message?: string;
+  }>(`/drives/${driveId}/mock-test-pdf`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
 }

@@ -25,13 +25,17 @@ export type RunCodeInput = z.infer<typeof runCodeSchema>;
 
 export const submitAssessmentSchema = z.object({
   timeSpentSeconds: z.coerce.number().int().min(0).default(0),
-  answers: z.record(
-    z.string(),
-    z.object({
-      code: z.string(),
-      language: z.enum(['javascript', 'python', 'java', 'cpp']),
-    })
-  ),
+  answers: z
+    .record(
+      z.string(),
+      z.object({
+        code: z.string(),
+        language: z.enum(['javascript', 'python', 'java', 'cpp']),
+      })
+    )
+    .optional()
+    .default({}),
+  mcqAnswers: z.record(z.string(), z.coerce.number().int()).optional().default({}),
 });
 
 export type SubmitAssessmentInput = z.infer<typeof submitAssessmentSchema>;

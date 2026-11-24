@@ -44,6 +44,7 @@ export interface StudentProfileData {
   s7MarksheetUrl?: string | null;
   s8MarksheetUrl?: string | null;
   currentSemester?: number;
+  placementStatus?: 'UNPLACED' | 'GENERAL' | 'DREAM' | 'INTERNSHIP';
   additionalDetails?: Record<string, unknown>;
   resumeUrl?: string | null;
   isProfileComplete?: boolean;
@@ -216,6 +217,138 @@ export async function updateBatchCurrentSemester(
     '/profiles/batch-current-semester',
     payload
   );
+  return response.data;
+}
+
+export interface PlacedStudentRecord {
+  applicationId: string;
+  driveId: string;
+  studentUserId: string;
+  studentId: string;
+  name: string | null;
+  branch: string | null;
+  batch: string | null;
+  cgpa: number;
+  company: string;
+  role: string | null;
+  ctcLpa: number | null;
+  packageCategory: 'GENERAL' | 'DREAM' | 'INTERNSHIP';
+  placedAt: string | number;
+}
+
+export interface RecordPlacedStudentPayload {
+  studentId: string;
+  company: string;
+  role?: string;
+  ctcLpa?: number | null;
+  packageCategory?: 'GENERAL' | 'DREAM' | 'INTERNSHIP';
+  driveId?: string | null;
+}
+
+export interface BatchPreviewPlacedRow {
+  rowNumber: number;
+  studentId: string;
+  name?: string;
+  branch?: string;
+  cgpa?: number;
+  company: string;
+  role?: string;
+  ctcLpa?: number | null;
+  packageCategory: 'GENERAL' | 'DREAM' | 'INTERNSHIP';
+  valid: boolean;
+  error?: string;
+}
+
+export interface BatchPreviewPlacedResponse {
+  totalRows: number;
+  validCount: number;
+  invalidCount: number;
+  rows: BatchPreviewPlacedRow[];
+}
+
+/**
+ * Retrieves all currently placed students across departments (or scoped to branch).
+ */
+export async function listPlacedStudents(branch?: string): Promise<PlacedStudentRecord[]> {
+  const response = await apiClient.get<PlacedStudentRecord[]>('/profiles/placed-students', {
+    params: branch ? { branch } : undefined,
+  });
+  return response.data;
+}
+
+/**
+ * Manually marks a student as placed with company, role, package, and category.
+ */
+export async function recordPlacedStudentManual(
+  payload: RecordPlacedStudentPayload
+): Promise<{ success: boolean; message: string; studentId: string; company: string }> {
+  const response = await apiClient.post<{
+    success: boolean;
+    message: string;
+    studentId: string;
+    company: string;
+  }>('/profiles/placed-students/manual', payload);
+  return response.data;
+}
+
+/**
+ * Uploads an Excel sheet of placed students to validate and preview rows before commit.
+ */
+export async function previewPlacedStudentsExcel(file: File): Promise<BatchPreviewPlacedResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await apiClient.post<BatchPreviewPlacedResponse>(
+    '/profiles/placed-students/batch-preview',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+  return response.data;
+}
+
+/**
+ * Atomically commits a batch of validated student placements.
+ */
+export async function commitPlacedStudentsBatch(
+  records: RecordPlacedStudentPayload[]
+): Promise<{ success: boolean; committedCount: number; message: string }> {
+  const response = await apiClient.post<{
+    success: boolean;
+    committedCount: number;
+    message: string;
+  }>('/profiles/placed-students/batch-commit', { records });
+  return response.data;
+}
+
+/**
+ * Unmarks a student as placed.
+ */
+export async function unmarkPlacedStudent(
+  studentUserId: string,
+  driveId: string
+): Promise<{ success: boolean; message: string }> {
+  const response = await apiClient.delete<{ success: boolean; message: string }>(
+    `/profiles/placed-students/${studentUserId}/${driveId}`
+  );
+  return response.data;
+}
+
+/**
+ * Updates a student's placement status (UNPLACED | GENERAL | DREAM | INTERNSHIP).
+ */
+export async function updateStudentPlacementStatus(
+  studentId: string,
+  placementStatus: 'UNPLACED' | 'GENERAL' | 'DREAM' | 'INTERNSHIP'
+): Promise<{ success: boolean; studentId: string; placementStatus: string; message: string }> {
+  const response = await apiClient.patch<{
+    success: boolean;
+    studentId: string;
+    placementStatus: string;
+    message: string;
+  }>(`/profiles/${studentId}/placement-status`, { placementStatus });
   return response.data;
 }
 

@@ -650,5 +650,83 @@ describe('Profiles Module (/api/profiles)', () => {
       expect(patchRes.body.age).toBeGreaterThan(18);
     });
   });
+
+  describe('Placed Students Management (/api/profiles/placed-students)', () => {
+    it('allows coordinators to manually record a placed student', async () => {
+      const res = await request(app)
+        .post('/api/profiles/placed-students/manual')
+        .set('Cookie', mainCookie)
+        .send({
+          studentId: '2022BCSE001',
+          company: 'Google',
+          role: 'Software Engineer',
+          ctcLpa: 28.5,
+          packageCategory: 'DREAM',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.studentId).toBe('2022BCSE001');
+      expect(res.body.company).toBe('Google');
+      expect(res.body.ctcLpa).toBe(28.5);
+    });
+
+    it('lists placed students with company and role', async () => {
+      await request(app)
+        .post('/api/profiles/placed-students/manual')
+        .set('Cookie', mainCookie)
+        .send({
+          studentId: '2022BCSE001',
+          company: 'Google',
+          role: 'Software Engineer',
+          ctcLpa: 28.5,
+          packageCategory: 'DREAM',
+        });
+
+      const res = await request(app)
+        .get('/api/profiles/placed-students')
+        .set('Cookie', mainCookie);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      const googlePlaced = res.body.find((p: any) => p.studentId === '2022BCSE001');
+      expect(googlePlaced).toBeDefined();
+      expect(googlePlaced.company).toBe('Google');
+    });
+
+    it('unmarks a placed student via DELETE /api/profiles/placed-students/:userId/:driveId', async () => {
+      await request(app)
+        .post('/api/profiles/placed-students/manual')
+        .set('Cookie', mainCookie)
+        .send({
+          studentId: '2022BCSE001',
+          company: 'Google',
+          role: 'Software Engineer',
+          ctcLpa: 28.5,
+          packageCategory: 'DREAM',
+        });
+
+      const listRes = await request(app)
+        .get('/api/profiles/placed-students')
+        .set('Cookie', mainCookie);
+
+      const placed = listRes.body.find((p: any) => p.studentId === '2022BCSE001');
+      expect(placed).toBeDefined();
+
+      const delRes = await request(app)
+        .delete(`/api/profiles/placed-students/${placed.studentUserId}/${placed.driveId}`)
+        .set('Cookie', mainCookie);
+
+      expect(delRes.status).toBe(200);
+      expect(delRes.body.success).toBe(true);
+
+      const verifyRes = await request(app)
+        .get('/api/profiles/placed-students')
+        .set('Cookie', mainCookie);
+
+      const removed = verifyRes.body.find((p: any) => p.studentId === '2022BCSE001');
+      expect(removed).toBeUndefined();
+    });
+  });
 });
 

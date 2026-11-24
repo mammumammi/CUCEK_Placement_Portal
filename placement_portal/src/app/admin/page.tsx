@@ -11,6 +11,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import gsap from 'gsap';
 import { DepartmentPlacementPieChart } from '@/components/analytics/DepartmentPlacementPieChart';
+import { PlacedStudentsManager } from '@/components/placements/PlacedStudentsManager';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import ExcelJS from 'exceljs';
@@ -46,6 +47,7 @@ import {
   Plus,
   Trash2,
   UploadCloud,
+  Video,
 } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { RequireAuth } from '@/components/auth/require-auth';
@@ -75,6 +77,9 @@ import {
   getStatsTemplateDownloadUrl,
   getComprehensiveStatisticsExportUrl,
   getPublicPlacementStats,
+  uploadMockTestPdf,
+  updateDriveDetails,
+  getYouTubeEmbedUrl,
   type CompanyFormatColumn,
   type DriveItem,
   type DriveExtraField,
@@ -127,7 +132,7 @@ export default function AdminPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
 
-  const [adminTab, setAdminTab] = useState<'upload' | 'curriculum' | 'drives' | 'stats-export' | 'analytics'>('upload');
+  const [adminTab, setAdminTab] = useState<'upload' | 'placed' | 'curriculum' | 'drives' | 'stats-export' | 'analytics'>('upload');
   const setActiveTabSafe = (t: string) => setAdminTab(t as any);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -161,15 +166,21 @@ export default function AdminPage() {
   const [driveDescription, setDriveDescription] = useState<string>('');
   const [drivePackageCategory, setDrivePackageCategory] = useState<'GENERAL' | 'DREAM' | 'INTERNSHIP'>('GENERAL');
   const [driveCtcLpa, setDriveCtcLpa] = useState<string>('');
+  const [driveYoutubeUrl, setDriveYoutubeUrl] = useState<string>('');
+  const [editingYoutubeDriveId, setEditingYoutubeDriveId] = useState<string | null>(null);
+  const [editingYoutubeUrl, setEditingYoutubeUrl] = useState<string>('');
+  const [isUpdatingYoutube, setIsUpdatingYoutube] = useState<boolean>(false);
   const [driveMinCgpa, setDriveMinCgpa] = useState<string>('6.5');
   const [driveAllowBacklogs, setDriveAllowBacklogs] = useState<boolean>(false);
   const [driveMaxActiveBacklogs, setDriveMaxActiveBacklogs] = useState<string>('0');
   const [driveEligibleBranches, setDriveEligibleBranches] = useState<string[]>([...ALL_BRANCHES]);
-  const [driveDeadline, setDriveDeadline] = useState<string>(() => {
+  const [driveDeadline, setDriveDeadline] = useState<string>('');
+
+  useEffect(() => {
     const d = new Date();
     d.setDate(d.getDate() + 7);
-    return d.toISOString().slice(0, 16);
-  });
+    setDriveDeadline(d.toISOString().slice(0, 16));
+  }, []);
   const [driveTotalRounds, setDriveTotalRounds] = useState<string>('2');
   const [driveNotifyEligible, setDriveNotifyEligible] = useState<boolean>(true);
   const [isCreatingDrive, setIsCreatingDrive] = useState<boolean>(false);
@@ -208,6 +219,14 @@ export default function AdminPage() {
   const [isSubmittingField, setIsSubmittingField] = useState<boolean>(false);
   const [batchFieldMsg, setBatchFieldMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Mock Test Reference PDF State (Multi-Agent Engine)
+  const [mockTestFiles, setMockTestFiles] = useState<File[]>([]);
+  const [mockPdfModalOpen, setMockPdfModalOpen] = useState<boolean>(false);
+  const [selectedDriveForMockPdf, setSelectedDriveForMockPdf] = useState<string | null>(null);
+  const [directMockFile, setDirectMockFile] = useState<File | null>(null);
+  const [isUploadingDirectMockPdf, setIsUploadingDirectMockPdf] = useState<boolean>(false);
+  const [mockPdfUploadMsg, setMockPdfUploadMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const handleLogout = async () => {
     await logout();
     router.push('/login');
@@ -242,7 +261,7 @@ export default function AdminPage() {
   }, []);
 
   React.useEffect(() => {
-    if (adminTab === 'stats-export') {
+    if (adminTab === 'stats-export' || adminTab === 'analytics' || adminTab === 'placed') {
       void fetchStatsTemplateStatus();
     }
   }, [adminTab, fetchStatsTemplateStatus]);
@@ -434,6 +453,9 @@ export default function AdminPage() {
       setDriveDescription(res.summary);
       setDrivePackageCategory(res.packageCategory);
       setDriveCtcLpa(res.ctcLpa !== null ? String(res.ctcLpa) : '');
+      if (res.youtubeUrl) {
+        setDriveYoutubeUrl(res.youtubeUrl);
+      }
       setDriveMinCgpa(String(res.minCgpa || 0));
       setDriveAllowBacklogs(res.allowBacklogs);
       setDriveMaxActiveBacklogs(String(res.maxActiveBacklogs || 0));
@@ -483,6 +505,7 @@ export default function AdminPage() {
       if (driveDescription.trim()) formData.append('description', driveDescription.trim());
       formData.append('packageCategory', drivePackageCategory);
       if (driveCtcLpa.trim()) formData.append('ctcLpa', driveCtcLpa.trim());
+      if (driveYoutubeUrl.trim()) formData.append('youtubeUrl', driveYoutubeUrl.trim());
       formData.append('minCgpa', driveMinCgpa.trim() || '0');
       formData.append('allowBacklogs', String(driveAllowBacklogs));
       formData.append('maxActiveBacklogs', driveAllowBacklogs ? (driveMaxActiveBacklogs.trim() || '2') : '0');
@@ -503,6 +526,12 @@ export default function AdminPage() {
         formData.append('companyFormat', JSON.stringify(companyFormatColumns));
       }
 
+      if (mockTestFiles.length > 0) {
+        mockTestFiles.forEach((file) => {
+          formData.append('mockTestFiles', file);
+        });
+      }
+
       const res = await createDrive(formData);
       setDriveMsg({
         type: 'success',
@@ -520,6 +549,7 @@ export default function AdminPage() {
       setDriveCtcLpa('');
       setJdFile(null);
       setJdFiles([]);
+      setMockTestFiles([]);
       setCompanyFormatColumns([]);
       setJdRawText('');
       setJdSummary(null);
@@ -539,6 +569,32 @@ export default function AdminPage() {
     }
   };
 
+  const handleUploadDirectMockPdf = async () => {
+    if (!selectedDriveForMockPdf || !directMockFile) return;
+    try {
+      setIsUploadingDirectMockPdf(true);
+      setMockPdfUploadMsg(null);
+      const res = await uploadMockTestPdf(selectedDriveForMockPdf, directMockFile);
+      setMockPdfUploadMsg({
+        type: 'success',
+        text: res.message || 'Mock test PDF uploaded and multi-agent synthesis triggered successfully!',
+      });
+      setDirectMockFile(null);
+      await fetchDrivesList();
+      setTimeout(() => {
+        setMockPdfModalOpen(false);
+        setMockPdfUploadMsg(null);
+      }, 1500);
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message ||
+        (err instanceof Error ? err.message : 'Upload failed');
+      setMockPdfUploadMsg({ type: 'error', text: msg });
+    } finally {
+      setIsUploadingDirectMockPdf(false);
+    }
+  };
+
   const handleNotifyDrive = async (driveId: string) => {
     setIsNotifyingDriveId(driveId);
     try {
@@ -552,6 +608,28 @@ export default function AdminPage() {
       alert(axiosErr.response?.data?.error?.message || 'Failed to dispatch email notifications.');
     } finally {
       setIsNotifyingDriveId(null);
+    }
+  };
+
+  const handleSaveYoutubeUrl = async () => {
+    if (!editingYoutubeDriveId) return;
+    try {
+      setIsUpdatingYoutube(true);
+      await updateDriveDetails(editingYoutubeDriveId, {
+        youtubeUrl: editingYoutubeUrl.trim() || null,
+      });
+      setDrivesList((prev) =>
+        prev.map((d) =>
+          d.id === editingYoutubeDriveId
+            ? { ...d, youtubeUrl: editingYoutubeUrl.trim() || null }
+            : d
+        )
+      );
+      setEditingYoutubeDriveId(null);
+    } catch (err: any) {
+      alert('Failed to update YouTube video URL: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setIsUpdatingYoutube(false);
     }
   };
 
@@ -847,8 +925,9 @@ export default function AdminPage() {
             <nav className="space-y-1.5">
               {[
                 { id: 'upload', label: 'Bulk Student Upload', icon: Upload },
+                { id: 'placed', label: 'Record Placements', icon: Award },
                 { id: 'analytics', label: 'Pie Chart Analytics', icon: PieChartIcon },
-                { id: 'curriculum', label: 'Curriculum Credits', icon: Award },
+                { id: 'curriculum', label: 'Curriculum Credits', icon: Layers },
                 { id: 'drives', label: 'Drives & AI Summarizer', icon: Briefcase },
                 { id: 'stats-export', label: 'Placement Statistics Excel', icon: FileSpreadsheet },
               ].map((item) => {
@@ -932,6 +1011,16 @@ export default function AdminPage() {
 
           {/* Main Content Area */}
           <div className="p-4 sm:p-8 lg:p-10 max-w-7xl w-full mx-auto space-y-8 flex-1">
+            {/* TAB: PLACED STUDENTS RECORDING & ROSTER */}
+            {adminTab === 'placed' && (
+              <PlacedStudentsManager
+                userRole="MAIN_COORDINATOR"
+                onStatsUpdated={() => {
+                  void fetchStatsTemplateStatus();
+                }}
+              />
+            )}
+
             {/* TAB: DEPARTMENT PLACEMENT PIE CHART */}
             {adminTab === 'analytics' && (
               <div className="space-y-6">
@@ -1701,6 +1790,37 @@ export default function AdminPage() {
                         </div>
                       </div>
 
+                      {/* Internship Opportunity Quick Toggle */}
+                      <div className="flex items-center justify-between p-3.5 bg-neutral-900/80 rounded-xl border border-neutral-800">
+                        <div className="flex items-center gap-2.5">
+                          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white text-black border border-white tracking-wide shadow-xs">
+                            Internship
+                          </span>
+                          <div>
+                            <span className="text-xs font-bold text-white block">Internship Opportunity</span>
+                            <span className="text-[11px] text-neutral-400 block">
+                              Toggle if this drive is an internship / stipend role rather than full-time
+                            </span>
+                          </div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={drivePackageCategory === 'INTERNSHIP'}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setDrivePackageCategory('INTERNSHIP');
+                              } else {
+                                const num = parseFloat(driveCtcLpa);
+                                setDrivePackageCategory(!isNaN(num) && num >= 7 ? 'DREAM' : 'GENERAL');
+                              }
+                            }}
+                            className="sr-only peer"
+                          />
+                          <div className="w-11 h-6 bg-neutral-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-white peer-checked:after:bg-black"></div>
+                        </label>
+                      </div>
+
                       {/* Package Category & CTC LPA */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
@@ -1723,7 +1843,7 @@ export default function AdminPage() {
 
                         <div>
                           <label className="block text-xs font-semibold text-neutral-200 mb-1">
-                            Package CTC (in LPA)
+                            {drivePackageCategory === 'INTERNSHIP' ? 'Stipend / Package (in LPA)' : 'Package CTC (in LPA)'}
                           </label>
                           <input
                             type="number"
@@ -1746,6 +1866,37 @@ export default function AdminPage() {
                             className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-semibold font-mono placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                           />
                         </div>
+                      </div>
+
+                      {/* YouTube Video URL Field */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="flex items-center gap-1.5 text-xs font-semibold text-neutral-200">
+                            <Video className="h-4 w-4 text-white" />
+                            <span>YouTube Video (Company &amp; Interview Prep)</span>
+                          </label>
+                          {driveYoutubeUrl && (
+                            <a
+                              href={driveYoutubeUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] font-medium text-neutral-300 hover:text-white underline flex items-center gap-1"
+                            >
+                              <span>Preview link</span>
+                              <ExternalLink className="h-3 w-3" />
+                            </a>
+                          )}
+                        </div>
+                        <input
+                          type="url"
+                          value={driveYoutubeUrl}
+                          onChange={(e) => setDriveYoutubeUrl(e.target.value)}
+                          placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/... (Auto-populated by AI)"
+                          className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-mono placeholder:text-neutral-500 focus:ring-2 focus:ring-white focus:outline-hidden"
+                        />
+                        <p className="text-[11px] text-neutral-500 mt-1">
+                          AI automatically populates company overview or interview preparation video, or you can paste a custom YouTube link.
+                        </p>
                       </div>
 
                       {/* Cutoff CGPA & Backlog / Supply Policy */}
@@ -2086,6 +2237,76 @@ export default function AdminPage() {
                         )}
                       </div>
 
+                      {/* Mock Test Reference PDF (Multi-Agent OA Engine) */}
+                      <div className="p-4 bg-neutral-900/60 rounded-xl border border-neutral-800 space-y-3">
+                        <div className="flex items-start gap-2.5">
+                          <FileText className="h-5 w-5 text-white mt-0.5 shrink-0" />
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-xs font-bold text-white">
+                                Mock Test Reference PDF (Optional)
+                              </h4>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-white/10 text-neutral-300 font-mono">
+                                Multi-Agent Engine
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-neutral-400 mt-0.5">
+                              Upload past question papers or test patterns (.pdf). The Multi-Agent synthesis agent will cross-reference this with web-mined data to generate 5 coding questions and 30 MCQs.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="border border-dashed border-neutral-700 rounded-lg p-3 text-center bg-[#09090b]">
+                          <input
+                            type="file"
+                            id="mock-test-pdf-upload"
+                            accept=".pdf,application/pdf"
+                            multiple
+                            onChange={(e) => {
+                              if (e.target.files) {
+                                const files = Array.from(e.target.files);
+                                setMockTestFiles((prev) => [...prev, ...files]);
+                              }
+                              e.target.value = '';
+                            }}
+                            className="hidden"
+                          />
+                          <label
+                            htmlFor="mock-test-pdf-upload"
+                            className="cursor-pointer inline-flex items-center gap-2 text-xs font-semibold text-neutral-300 hover:text-white"
+                          >
+                            <UploadCloud className="h-4 w-4 text-white" />
+                            <span>Select Mock Test PDF file(s)</span>
+                          </label>
+                        </div>
+
+                        {mockTestFiles.length > 0 && (
+                          <div className="space-y-1.5 pt-1">
+                            {mockTestFiles.map((file, idx) => (
+                              <div
+                                key={`${file.name}-${idx}`}
+                                className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-neutral-900 border border-neutral-800 text-xs"
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  <FileText className="h-3.5 w-3.5 text-white shrink-0" />
+                                  <span className="truncate text-neutral-200">{file.name}</span>
+                                  <span className="text-[10px] text-neutral-400 font-mono">
+                                    ({(file.size / 1024).toFixed(1)} KB)
+                                  </span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setMockTestFiles((prev) => prev.filter((_, i) => i !== idx))}
+                                  className="text-neutral-400 hover:text-rose-400"
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
                       {/* Broadcast Email Option */}
                       <div className="p-3 bg-neutral-900/70 rounded-lg border border-indigo-100 flex items-start gap-2.5">
                         <input
@@ -2163,24 +2384,18 @@ export default function AdminPage() {
                             key={d.id}
                             className="p-4 rounded-xl border border-neutral-800 bg-neutral-900/60/60 hover:bg-[#18181b] text-white hover:border-indigo-300 transition shadow-2xs space-y-3"
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <h4 className="font-bold text-white text-sm">{d.company}</h4>
-                                {d.role && <p className="text-xs text-neutral-400">{d.role}</p>}
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1 pr-1">
+                                <h4 className="font-bold text-white text-sm truncate" title={d.company}>{d.company}</h4>
+                                {d.role && <p className="text-xs text-neutral-400 mt-0.5 truncate" title={d.role}>{d.role}</p>}
                               </div>
-                              {d.packageCategory === 'DREAM' ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                                  ★ Dream
-                                </span>
-                              ) : d.packageCategory === 'INTERNSHIP' ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
-                                  ⏳ Internship
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
-                                  💼 General
-                                </span>
-                              )}
+                              <span className="shrink-0 whitespace-nowrap px-3.5 py-1 rounded-full text-xs font-bold bg-white text-black border border-white text-center shadow-xs tracking-wide min-w-[76px]">
+                                {d.packageCategory === 'DREAM'
+                                  ? 'Dream'
+                                  : d.packageCategory === 'INTERNSHIP'
+                                  ? 'Internship'
+                                  : 'General'}
+                              </span>
                             </div>
 
                             <div className="grid grid-cols-2 gap-2 text-[11px] text-neutral-400 bg-[#18181b] text-white p-2.5 rounded-lg border border-gray-100">
@@ -2219,6 +2434,31 @@ export default function AdminPage() {
                               Deadline: {new Date(d.deadline).toLocaleString()}
                             </div>
 
+                            {d.mockTestPdfUrls && d.mockTestPdfUrls.length > 0 && (
+                              <div className="flex items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-white/10 text-neutral-200 border border-white/20">
+                                  <FileText className="h-3 w-3 text-white" />
+                                  Mock PDF Attached ({d.mockTestPdfUrls.length})
+                                </span>
+                              </div>
+                            )}
+
+                            {d.youtubeUrl && (
+                              <div className="flex items-center gap-1.5">
+                                <a
+                                  href={d.youtubeUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-red-950/60 text-red-300 border border-red-800/80 hover:bg-red-900/60 transition"
+                                  title="View attached YouTube company / interview preparation video"
+                                >
+                                  <Video className="h-3 w-3 text-red-400" />
+                                  <span>YouTube Video Attached</span>
+                                  <ExternalLink className="h-2.5 w-2.5 text-red-400" />
+                                </a>
+                              </div>
+                            )}
+
                             {/* Action Buttons */}
                             <div className="pt-2 border-t border-neutral-800 flex flex-wrap items-center gap-2">
                               <Link
@@ -2227,6 +2467,42 @@ export default function AdminPage() {
                               >
                                 <FileText className="h-3.5 w-3.5" />
                                 Open Application Sheet
+                              </Link>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingYoutubeDriveId(d.id);
+                                  setEditingYoutubeUrl(d.youtubeUrl || '');
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-neutral-300 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition"
+                                title="Edit or attach YouTube preparation video link"
+                              >
+                                <Video className="h-3.5 w-3.5 text-white" />
+                                {d.youtubeUrl ? 'Change Video' : 'Add Video'}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedDriveForMockPdf(d.id);
+                                  setMockPdfModalOpen(true);
+                                  setMockPdfUploadMsg(null);
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-neutral-300 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition"
+                                title="Upload reference mock test PDF for multi-agent synthesis"
+                              >
+                                <UploadCloud className="h-3.5 w-3.5 text-white" />
+                                Upload Mock PDF
+                              </button>
+
+                              <Link
+                                href={`/drives/${d.id}/mock-oa`}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-neutral-300 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition"
+                                title="Preview AI Multi-Agent Mock OA Simulation"
+                              >
+                                <Sparkles className="h-3.5 w-3.5 text-white" />
+                                Mock OA
                               </Link>
 
                               <button
@@ -2524,6 +2800,187 @@ export default function AdminPage() {
                         </button>
                       </div>
                     </form>
+                  </div>
+                </div>
+              )}
+
+              {/* Mock Test Reference PDF Upload Modal */}
+              {mockPdfModalOpen && selectedDriveForMockPdf && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+                  <div className="bg-[#121214] text-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-neutral-800 animate-in zoom-in-95 duration-150">
+                    <div className="p-5 border-b border-neutral-800 flex items-center justify-between bg-neutral-900/50">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-neutral-800 text-white rounded-lg">
+                          <FileText className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-white">Upload Mock Test Reference PDF</h3>
+                          <p className="text-xs text-neutral-400">Attach company past papers or test syllabus</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMockPdfModalOpen(false);
+                          setDirectMockFile(null);
+                          setMockPdfUploadMsg(null);
+                        }}
+                        className="text-neutral-400 hover:text-white p-1"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+
+                    <div className="p-6 space-y-4 text-xs">
+                      <p className="text-neutral-400 leading-relaxed">
+                        Upload a past question paper or model test PDF. The Multi-Agent synthesis pipeline will automatically ingest this document, cross-reference it with crawled web archives, and regenerate 5 coding questions and 30 MCQs for this drive.
+                      </p>
+
+                      <div className="border border-dashed border-neutral-700 rounded-xl p-4 text-center bg-[#09090b]">
+                        <input
+                          type="file"
+                          accept=".pdf,application/pdf"
+                          id="direct-mock-pdf-upload"
+                          onChange={(e) => setDirectMockFile(e.target.files?.[0] || null)}
+                          className="hidden"
+                        />
+                        <label
+                          htmlFor="direct-mock-pdf-upload"
+                          className="cursor-pointer flex flex-col items-center justify-center space-y-2"
+                        >
+                          <UploadCloud className="h-6 w-6 text-white" />
+                          <span className="font-semibold text-white">
+                            {directMockFile ? directMockFile.name : 'Choose Reference PDF File'}
+                          </span>
+                          <span className="text-[11px] text-neutral-500 font-mono">
+                            {directMockFile
+                              ? `${(directMockFile.size / 1024).toFixed(1)} KB selected`
+                              : 'PDF files up to 15MB'}
+                          </span>
+                        </label>
+                      </div>
+
+                      {mockPdfUploadMsg && (
+                        <div
+                          className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${
+                            mockPdfUploadMsg.type === 'success'
+                              ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300'
+                              : 'bg-rose-950/60 border-rose-800 text-rose-300'
+                          }`}
+                        >
+                          {mockPdfUploadMsg.type === 'success' ? (
+                            <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
+                          ) : (
+                            <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0" />
+                          )}
+                          <span>{mockPdfUploadMsg.text}</span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-800">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMockPdfModalOpen(false);
+                            setDirectMockFile(null);
+                            setMockPdfUploadMsg(null);
+                          }}
+                          className="px-4 py-2 border border-neutral-800 rounded-lg text-xs font-medium text-neutral-400 hover:text-white bg-neutral-900 hover:bg-neutral-800 transition"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!directMockFile || isUploadingDirectMockPdf}
+                          onClick={handleUploadDirectMockPdf}
+                          className="px-5 py-2 bg-white text-black font-bold rounded-lg text-xs hover:bg-neutral-200 disabled:opacity-50 transition"
+                        >
+                          {isUploadingDirectMockPdf ? 'Uploading & Synthesizing...' : 'Upload & Re-synthesize'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Edit YouTube Video Modal */}
+              {editingYoutubeDriveId && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
+                  <div className="bg-[#121214] text-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-neutral-800">
+                    <div className="p-5 border-b border-neutral-800 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white">
+                          <Video className="h-4 w-4 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-bold text-white">Edit YouTube Video Link</h3>
+                          <p className="text-xs text-neutral-400">
+                            {drivesList.find((d) => d.id === editingYoutubeDriveId)?.company} • Placement Drive
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingYoutubeDriveId(null);
+                          setEditingYoutubeUrl('');
+                        }}
+                        className="text-neutral-400 hover:text-white p-1"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+
+                    <div className="p-6 space-y-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-neutral-300 mb-1">
+                          YouTube Video URL
+                        </label>
+                        <input
+                          type="url"
+                          value={editingYoutubeUrl}
+                          onChange={(e) => setEditingYoutubeUrl(e.target.value)}
+                          placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
+                          className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-mono placeholder:text-neutral-500 focus:ring-2 focus:ring-white focus:outline-hidden"
+                        />
+                        <p className="text-[11px] text-neutral-400 mt-1">
+                          Provide a company overview, tech stack walkthrough, or past interview questions video. Leave blank to remove.
+                        </p>
+                      </div>
+
+                      {editingYoutubeUrl.trim() && getYouTubeEmbedUrl(editingYoutubeUrl.trim()) && (
+                        <div className="aspect-video w-full rounded-xl overflow-hidden border border-neutral-800 bg-black">
+                          <iframe
+                            src={getYouTubeEmbedUrl(editingYoutubeUrl.trim())!}
+                            title="YouTube video preview"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                            className="w-full h-full"
+                          />
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-800">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingYoutubeDriveId(null);
+                            setEditingYoutubeUrl('');
+                          }}
+                          className="px-4 py-2 border border-neutral-800 rounded-lg text-xs font-medium text-neutral-400 hover:text-white bg-neutral-900 hover:bg-neutral-800 transition"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isUpdatingYoutube}
+                          onClick={handleSaveYoutubeUrl}
+                          className="px-5 py-2 bg-white text-black font-bold rounded-lg text-xs hover:bg-neutral-200 disabled:opacity-50 transition"
+                        >
+                          {isUpdatingYoutube ? 'Saving...' : 'Save YouTube Link'}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

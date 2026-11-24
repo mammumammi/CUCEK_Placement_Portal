@@ -12,6 +12,7 @@ import {
   submitMockAssessment,
   getMySubmissions,
   getBigDataAssessmentAnalytics,
+  uploadMockTestPdf,
 } from './assessments.service';
 
 describe('Assessments Service', () => {
@@ -97,5 +98,21 @@ describe('Assessments Service', () => {
     const result = await getBigDataAssessmentAnalytics('a1');
     expect(apiClient.get).toHaveBeenCalledWith('/assessments/a1/big-data-analytics');
     expect(result).toEqual(mockAnalytics);
+  });
+
+  it('calls uploadMockTestPdf with form data', async () => {
+    const mockRes = { success: true, driveId: 'd123', mockTestPdfUrls: ['/uploads/mock.pdf'] };
+    (apiClient.post as any).mockResolvedValueOnce({ data: mockRes });
+
+    const file = new File(['content'], 'mock.pdf', { type: 'application/pdf' });
+    const result = await uploadMockTestPdf('d123', file);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      '/drives/d123/mock-test-pdf',
+      expect.any(FormData),
+      expect.objectContaining({
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+    );
+    expect(result).toEqual(mockRes);
   });
 });
