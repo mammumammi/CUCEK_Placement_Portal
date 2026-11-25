@@ -194,15 +194,20 @@ export function PlacedStudentsManager({
       return { total: 0, highest: 0, average: 0, dreamCount: 0 };
     }
     const packages = placedList
-      .map((p) => p.ctcLpa)
-      .filter((p): p is number => typeof p === 'number' && p > 0);
+      .map((p) => (p.ctcLpa !== null && p.ctcLpa !== undefined ? Number(p.ctcLpa) : null))
+      .filter((p): p is number => typeof p === 'number' && !isNaN(p) && p > 0);
     const highest = packages.length > 0 ? Math.max(...packages) : 0;
     const average =
       packages.length > 0
         ? +(packages.reduce((acc, curr) => acc + curr, 0) / packages.length).toFixed(2)
         : 0;
     const dreamCount = placedList.filter(
-      (p) => p.packageCategory === 'DREAM' || (p.ctcLpa !== null && p.ctcLpa >= 7)
+      (p) =>
+        p.packageCategory === 'DREAM' ||
+        (p.packageCategory !== 'INTERNSHIP' &&
+          p.ctcLpa !== null &&
+          p.ctcLpa !== undefined &&
+          Number(p.ctcLpa) >= 7.0)
     ).length;
     return { total, highest, average, dreamCount };
   }, [placedList]);
@@ -309,6 +314,11 @@ export function PlacedStudentsManager({
       return;
     }
 
+    let finalCategory = manualForm.packageCategory;
+    if (ctc !== null && ctc >= 7.0 && finalCategory !== 'INTERNSHIP') {
+      finalCategory = 'DREAM';
+    }
+
     try {
       setManualSubmitting(true);
       const res = await recordPlacedStudentManual({
@@ -316,7 +326,7 @@ export function PlacedStudentsManager({
         company: comp,
         role: manualForm.role.trim() || undefined,
         ctcLpa: ctc,
-        packageCategory: manualForm.packageCategory,
+        packageCategory: finalCategory,
       });
 
       setFeedback({

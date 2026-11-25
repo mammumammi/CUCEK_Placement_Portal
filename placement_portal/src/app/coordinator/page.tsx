@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { API_BASE_URL } from '@/lib/api-client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import ExcelJS from 'exceljs';
@@ -2537,7 +2538,7 @@ export default function CoordinatorPage() {
                               </button>
 
                               <a
-                                href={`http://localhost:4000/api/drives/${d.id}/export`}
+                                href={`${API_BASE_URL}/drives/${d.id}/export`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-[11px] font-semibold text-neutral-200 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition whitespace-nowrap"
@@ -2557,7 +2558,7 @@ export default function CoordinatorPage() {
                               </button>
 
                               <a
-                                href={`http://localhost:4000/api/drives/${d.id}/export?format=company`}
+                                href={`${API_BASE_URL}/drives/${d.id}/export?format=company`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="col-span-2 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-[11px] font-bold text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-800/70 transition whitespace-nowrap"

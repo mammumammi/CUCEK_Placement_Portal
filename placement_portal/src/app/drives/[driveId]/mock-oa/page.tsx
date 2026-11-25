@@ -11,6 +11,7 @@
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { API_BASE_URL } from '@/lib/api-client';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
@@ -891,18 +892,22 @@ function MockAssessmentContent() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {assessment.mockTestPdfUrls.map((url, i) => (
-                      <a
-                        key={i}
-                        href={`http://localhost:4000${url}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-black hover:bg-neutral-200 transition"
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        <span>View Reference Paper {i + 1}</span>
-                      </a>
-                    ))}
+                    {assessment.mockTestPdfUrls.map((url, i) => {
+                      const origin = API_BASE_URL.replace(/\/api\/?$/, '');
+                      const fullUrl = url.startsWith('http') ? url : `${origin}${url.startsWith('/') ? '' : '/'}${url}`;
+                      return (
+                        <a
+                          key={i}
+                          href={fullUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-black hover:bg-neutral-200 transition"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          <span>View Reference Paper {i + 1}</span>
+                        </a>
+                      );
+                    })}
                   </div>
                 </div>
               )}

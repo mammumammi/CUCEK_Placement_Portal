@@ -1,7 +1,10 @@
 import axios from 'axios';
 
+export const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || 'https://cucek-placement-portal.onrender.com/api';
+
 export const apiClient = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api',
+  baseURL: API_BASE_URL,
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',

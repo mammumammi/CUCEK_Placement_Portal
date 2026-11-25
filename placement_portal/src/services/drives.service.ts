@@ -354,7 +354,7 @@ export async function deleteStatsReferenceTemplate(): Promise<{ success: boolean
  * Returns direct URL for downloading the current reference template.
  */
 export function getStatsTemplateDownloadUrl(): string {
-  const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+  const base = process.env.NEXT_PUBLIC_API_URL || 'https://cucek-placement-portal.onrender.com/api';
   return `${base}/drives/statistics/download-template`;
 }
 
@@ -362,7 +362,7 @@ export function getStatsTemplateDownloadUrl(): string {
  * Returns direct URL for downloading the generated comprehensive placement statistics Excel.
  */
 export function getComprehensiveStatisticsExportUrl(): string {
-  const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+  const base = process.env.NEXT_PUBLIC_API_URL || 'https://cucek-placement-portal.onrender.com/api';
   return `${base}/drives/statistics/export-excel`;
 }
 

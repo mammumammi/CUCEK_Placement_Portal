@@ -58,23 +58,23 @@ export default function PublicPlacementHomePage() {
         const data = await getPublicPlacementStats();
         setStats(data);
       } catch {
-        // High fidelity fallback state if backend is warming up
+        // Fallback state if backend is unreachable
         setStats({
-          totalStudents: 48,
-          totalPlaced: 12,
-          placementRate: 25.0,
-          highestPackage: 28.5,
-          averagePackage: 19.2,
-          totalDrives: 6,
+          totalStudents: 0,
+          totalPlaced: 0,
+          placementRate: 0,
+          highestPackage: 0,
+          averagePackage: 0,
+          totalDrives: 0,
           branchBreakdown: [
-            { branch: 'CSE', total: 38, placed: 6, placementRate: 15.8 },
-            { branch: 'ECE', total: 2, placed: 1, placementRate: 50.0 },
-            { branch: 'EEE', total: 2, placed: 1, placementRate: 50.0 },
-            { branch: 'IT', total: 2, placed: 1, placementRate: 50.0 },
-            { branch: 'CIVIL', total: 2, placed: 1, placementRate: 50.0 },
-            { branch: 'MCA', total: 2, placed: 2, placementRate: 100.0 },
+            { branch: 'CSE', total: 0, placed: 0, placementRate: 0 },
+            { branch: 'ECE', total: 0, placed: 0, placementRate: 0 },
+            { branch: 'EEE', total: 0, placed: 0, placementRate: 0 },
+            { branch: 'IT', total: 0, placed: 0, placementRate: 0 },
+            { branch: 'CIVIL', total: 0, placed: 0, placementRate: 0 },
+            { branch: 'MCA', total: 0, placed: 0, placementRate: 0 },
           ],
-          topCompanies: ['Google', 'Microsoft', 'Amazon', 'Tata Consultancy Services (TCS)', 'Adobe'],
+          topCompanies: [],
           featuredDrives: [],
         });
       } finally {
@@ -390,7 +390,7 @@ export default function PublicPlacementHomePage() {
                 <div className="gsap-metric-card bg-neutral-900/90 border border-neutral-800 rounded-2xl p-4 text-left">
                   <span className="text-neutral-400 text-xs block font-medium">Placement Rate</span>
                   <span className="text-2xl sm:text-3xl font-black text-white mt-1 block font-mono">
-                    {stats ? `${stats.placementRate}%` : '25.0%'}
+                    {stats ? `${stats.placementRate}%` : '0%'}
                   </span>
                   <span className="text-[11px] text-neutral-500 mt-0.5 block">Campus Average</span>
                 </div>
@@ -398,7 +398,7 @@ export default function PublicPlacementHomePage() {
                 <div className="gsap-metric-card bg-neutral-900/90 border border-neutral-800 rounded-2xl p-4 text-left">
                   <span className="text-neutral-400 text-xs block font-medium">Highest Package</span>
                   <span className="text-2xl sm:text-3xl font-black text-white mt-1 block font-mono">
-                    {stats && stats.highestPackage > 0 ? `${stats.highestPackage} LPA` : '28.5 LPA'}
+                    {stats && stats.highestPackage > 0 ? `${stats.highestPackage} LPA` : '0 LPA'}
                   </span>
                   <span className="text-[11px] text-neutral-500 mt-0.5 block">Dream Category</span>
                 </div>
@@ -406,7 +406,7 @@ export default function PublicPlacementHomePage() {
                 <div className="gsap-metric-card bg-neutral-900/90 border border-neutral-800 rounded-2xl p-4 text-left col-span-2 sm:col-span-1">
                   <span className="text-neutral-400 text-xs block font-medium">Average CTC</span>
                   <span className="text-2xl sm:text-3xl font-black text-white mt-1 block font-mono">
-                    {stats && stats.averagePackage > 0 ? `${stats.averagePackage} LPA` : '19.2 LPA'}
+                    {stats && stats.averagePackage > 0 ? `${stats.averagePackage} LPA` : '0 LPA'}
                   </span>
                   <span className="text-[11px] text-neutral-500 mt-0.5 block">Across All Streams</span>
                 </div>
