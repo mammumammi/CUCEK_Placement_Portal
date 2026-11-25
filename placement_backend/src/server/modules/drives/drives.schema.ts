@@ -43,6 +43,7 @@ export const createDriveSchema = z.object({
   packageCategory: z.enum(['GENERAL', 'DREAM', 'INTERNSHIP']).optional().default('GENERAL'),
   ctcLpa: z.coerce.number().optional().nullable(),
   youtubeUrl: z.string().trim().optional().nullable(),
+  registrationLink: z.string().trim().optional().nullable(),
   deadline: z
     .string()
     .trim()
@@ -77,6 +78,7 @@ export const createDriveSchema = z.object({
     .min(0, 'maxActiveBacklogs cannot be negative')
     .default(0),
   allowBacklogs: z.coerce.boolean().optional().default(false),
+  codingEnabled: z.coerce.boolean().optional().default(true),
   notifyEligible: z.coerce.boolean().optional().default(false),
   totalRounds: z.coerce
     .number()
@@ -166,11 +168,13 @@ export const updateDriveDetailsSchema = z.object({
   packageCategory: z.enum(['GENERAL', 'DREAM', 'INTERNSHIP']).optional(),
   ctcLpa: z.coerce.number().optional().nullable(),
   youtubeUrl: z.string().trim().optional().nullable(),
+  registrationLink: z.string().trim().optional().nullable(),
   deadline: z.string().trim().optional(),
   eligibleBranches: z.array(z.string().trim().min(1)).optional(),
   minCgpa: z.coerce.number().min(0).max(10).optional(),
   maxActiveBacklogs: z.coerce.number().int().min(0).optional(),
   allowBacklogs: z.coerce.boolean().optional(),
+  codingEnabled: z.coerce.boolean().optional(),
 });
 
 export type UpdateDriveDetailsInput = z.infer<typeof updateDriveDetailsSchema>;

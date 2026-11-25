@@ -39,6 +39,8 @@ import {
   LayoutDashboard,
   Layers,
   Code2,
+  Bell,
+  Users,
 } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { RequireAuth } from '@/components/auth/require-auth';
@@ -47,8 +49,11 @@ import {
   completeMyProfile,
   createCorrectionRequest,
   listCorrectionRequests,
+  listMyNotifications,
+  markMyNotificationRead,
   type StudentProfileData,
   type CorrectionRequestData,
+  type StudentNotificationItem,
 } from '@/services/profiles.service';
 import { listDrives, type DriveItem } from '@/services/drives.service';
 
@@ -59,7 +64,8 @@ export default function StudentPage() {
   const [profile, setProfile] = useState<StudentProfileData | null>(null);
   const [requests, setRequests] = useState<CorrectionRequestData[]>([]);
   const [drives, setDrives] = useState<DriveItem[]>([]);
-  const [drivesFilter, setDrivesFilter] = useState<'all' | 'applied' | 'eligible'>('all');
+  const [notifications, setNotifications] = useState<StudentNotificationItem[]>([]);
+  const [drivesFilter, setDrivesFilter] = useState<'all' | 'applied' | 'eligible' | 'previous'>('all');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -67,13 +73,22 @@ export default function StudentPage() {
 
   const appliedDrivesCount = useMemo(() => drives.filter((d) => d.userApplied).length, [drives]);
   const eligibleDrivesCount = useMemo(
-    () => drives.filter((d) => !d.userApplied && d.eligible !== false).length,
+    () => drives.filter((d) => !d.userApplied && d.eligible !== false && !d.isPrevious && d.open !== false).length,
     [drives]
+  );
+  const previousDrivesCount = useMemo(
+    () => drives.filter((d) => d.isPrevious || !d.open).length,
+    [drives]
+  );
+  const unreadNotificationCount = useMemo(
+    () => notifications.filter((n) => !n.read).length,
+    [notifications]
   );
 
   const filteredDrives = useMemo(() => {
     if (drivesFilter === 'applied') return drives.filter((d) => d.userApplied);
-    if (drivesFilter === 'eligible') return drives.filter((d) => !d.userApplied && d.eligible !== false);
+    if (drivesFilter === 'eligible') return drives.filter((d) => !d.userApplied && d.eligible !== false && !d.isPrevious && d.open !== false);
+    if (drivesFilter === 'previous') return drives.filter((d) => d.isPrevious || !d.open);
     return drives;
   }, [drives, drivesFilter]);
 
@@ -115,14 +130,16 @@ export default function StudentPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const [profileData, requestsData, drivesData] = await Promise.all([
+      const [profileData, requestsData, drivesData, notificationsData] = await Promise.all([
         getMyProfile(),
         listCorrectionRequests(),
         listDrives().catch(() => []),
+        listMyNotifications().catch(() => []),
       ]);
       setProfile(profileData);
       setRequests(requestsData);
       setDrives(drivesData);
+      setNotifications(notificationsData);
 
       // Pre-populate correction fields from existing profile
       if (profileData) {
@@ -218,7 +235,7 @@ export default function StudentPage() {
       });
       setProfile(updated);
       setIsSetupModalOpen(false);
-      setSuccessMsg('Your profile has been completed successfully! Welcome to the Placement Portal.');
+      setSuccessMsg('Your profile has been completed successfully! Welcome to the CUCEK Placement Portal.');
     } catch (err: unknown) {
       const axiosErr = err as {
         response?: { data?: { error?: { message?: string }; message?: string } };
@@ -684,7 +701,89 @@ export default function StudentPage() {
                 </section>
 
                 {/* ========================================================= */}
-                {/* 2. ACTIVE RECRUITMENT DRIVES SECTION                       */}
+                {/* SHORTLIST & ROUND NOTIFICATIONS                           */}
+                {/* ========================================================= */}
+                {notifications.length > 0 && (
+                  <section className="gsap-student-card space-y-3">
+                    <div className="bg-[#101012] border border-emerald-800/60 rounded-3xl p-5 sm:p-6 space-y-4">
+                      <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="p-2 rounded-xl bg-emerald-950/80 border border-emerald-700/60 text-emerald-400">
+                            <Bell className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-bold text-white">
+                              Shortlist &amp; Interview Notifications
+                            </h3>
+                            <p className="text-[11px] text-neutral-400">
+                              Live round updates and selection announcements from coordinators
+                            </p>
+                          </div>
+                        </div>
+                        {unreadNotificationCount > 0 && (
+                          <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-400 text-black whitespace-nowrap">
+                            {unreadNotificationCount} New
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
+                        {notifications.map((n) => (
+                          <div
+                            key={n.id}
+                            className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition ${
+                              n.read
+                                ? 'bg-neutral-900/40 border-neutral-800/80 opacity-80'
+                                : 'bg-emerald-950/30 border-emerald-700/70'
+                            }`}
+                          >
+                            <div className="space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-bold text-white">{n.title}</span>
+                                {n.roundLabel && (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-white text-black">
+                                    {n.roundLabel}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-neutral-300">{n.message}</p>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {n.driveId && (
+                                <Link
+                                  href={`/drives/${n.driveId}`}
+                                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-white text-black hover:bg-neutral-200 transition whitespace-nowrap"
+                                >
+                                  View Drive
+                                </Link>
+                              )}
+                              {!n.read && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    await markMyNotificationRead(n.id);
+                                    setNotifications((prev) =>
+                                      prev.map((item) =>
+                                        item.id === n.id ? { ...item, read: true } : item
+                                      )
+                                    );
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-neutral-300 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition whitespace-nowrap"
+                                >
+                                  Mark Read
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+                )}
+
+                {/* ========================================================= */}
+                {/* 2. ACTIVE & PREVIOUS RECRUITMENT DRIVES SECTION           */}
                 {/* ========================================================= */}
                 <section id="drives" className="gsap-student-card space-y-4">
                   <div className="bg-[#101012] border border-neutral-800 rounded-3xl p-6 sm:p-8 space-y-6">
@@ -692,10 +791,10 @@ export default function StudentPage() {
                       <div>
                         <h3 className="text-base font-bold text-white flex items-center gap-2">
                           <Briefcase className="h-4 w-4 text-white" />
-                          <span>Active Recruitment Drives</span>
+                          <span>Recruitment Drives</span>
                         </h3>
                         <p className="text-xs text-neutral-400 mt-0.5">
-                          Open placement opportunities with simulated real-time excel application sheets
+                          Open opportunities and previous drives with selected candidates
                         </p>
                       </div>
 
@@ -703,7 +802,7 @@ export default function StudentPage() {
                         <button
                           type="button"
                           onClick={() => setDrivesFilter('all')}
-                          className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
+                          className={`px-3 py-1 rounded-full text-xs font-semibold transition whitespace-nowrap ${
                             drivesFilter === 'all'
                               ? 'bg-white text-black'
                               : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
@@ -714,7 +813,7 @@ export default function StudentPage() {
                         <button
                           type="button"
                           onClick={() => setDrivesFilter('applied')}
-                          className={`px-3 py-1 rounded-full text-xs font-semibold transition flex items-center gap-1 ${
+                          className={`px-3 py-1 rounded-full text-xs font-semibold transition flex items-center gap-1 whitespace-nowrap ${
                             drivesFilter === 'applied'
                               ? 'bg-emerald-400 text-black font-bold'
                               : 'bg-neutral-900 text-emerald-400 hover:text-emerald-300 border border-emerald-800/60'
@@ -726,13 +825,24 @@ export default function StudentPage() {
                         <button
                           type="button"
                           onClick={() => setDrivesFilter('eligible')}
-                          className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
+                          className={`px-3 py-1 rounded-full text-xs font-semibold transition whitespace-nowrap ${
                             drivesFilter === 'eligible'
                               ? 'bg-white text-black'
                               : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
                           }`}
                         >
                           Open to Apply ({eligibleDrivesCount})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDrivesFilter('previous')}
+                          className={`px-3 py-1 rounded-full text-xs font-semibold transition whitespace-nowrap ${
+                            drivesFilter === 'previous'
+                              ? 'bg-white text-black'
+                              : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
+                          }`}
+                        >
+                          Previous Drives ({previousDrivesCount})
                         </button>
                       </div>
                     </div>
@@ -743,6 +853,8 @@ export default function StudentPage() {
                           ? 'You have not applied to any recruitment drives yet.'
                           : drivesFilter === 'eligible'
                           ? 'No open recruitment drives match your current eligibility.'
+                          : drivesFilter === 'previous'
+                          ? 'No previous / closed recruitment drives found.'
                           : 'No recruitment drives are currently published for your department.'}
                       </p>
                     ) : (
@@ -818,9 +930,40 @@ export default function StudentPage() {
                                   </ul>
                                 </div>
                               )}
+
+                              {/* Selected / Placed Candidates in this Drive */}
+                              {d.placedCandidates && d.placedCandidates.length > 0 && (
+                                <div className="p-3 rounded-2xl bg-emerald-950/30 border border-emerald-800/60 space-y-2 font-sans">
+                                  <span className="text-[11px] font-bold text-emerald-300 flex items-center gap-1.5">
+                                    <Award className="h-3.5 w-3.5 text-emerald-400" />
+                                    <span>Selected Candidates ({d.placedCandidates.length})</span>
+                                  </span>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {d.placedCandidates.map((pc) => (
+                                      <span
+                                        key={pc.userId}
+                                        className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-neutral-900 text-white border border-emerald-700/60 whitespace-nowrap"
+                                      >
+                                        {pc.name || pc.studentId} ({pc.branch || '—'})
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
 
                             <div className="space-y-2.5 pt-1">
+                              {d.registrationLink && (
+                                <a
+                                  href={d.registrationLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center justify-center gap-2 w-full py-2 px-4 rounded-xl text-xs font-bold text-blue-300 bg-blue-950/40 hover:bg-blue-900/50 border border-blue-700/60 transition shadow-xs"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5 text-blue-400" />
+                                  <span>Register on Company Portal</span>
+                                </a>
+                              )}
                               {d.userApplied ? (
                                 <Link
                                   href={`/drives/${d.id}`}

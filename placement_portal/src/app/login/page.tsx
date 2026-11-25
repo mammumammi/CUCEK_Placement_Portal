@@ -100,10 +100,10 @@ export default function LoginPage() {
             <ShieldCheck className="h-6 w-6 text-white" />
           </div>
           <h2 className="text-2xl font-black text-white tracking-tight">
-            Placement Portal
+            CUCEK Placement Portal
           </h2>
           <p className="text-xs text-neutral-400">
-            Sign in with your university credentials
+            Cochin University College of Engineering Kuttanad &bull; Sign in with your university credentials
           </p>
         </div>
 

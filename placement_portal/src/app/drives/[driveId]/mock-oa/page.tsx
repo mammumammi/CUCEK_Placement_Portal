@@ -49,6 +49,7 @@ import {
   BrainCircuit,
   Network,
   Bot,
+  RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { RequireAuth } from '@/components/auth/require-auth';
@@ -84,6 +85,7 @@ function MockAssessmentContent() {
   const [assessment, setAssessment] = useState<MockAssessmentData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [generationStage, setGenerationStage] = useState<number>(0);
 
   // Active workspace section: 'INSTRUCTIONS' | 'MCQ' | 'CODING'
   const [activeSection, setActiveSection] = useState<'INSTRUCTIONS' | 'MCQ' | 'CODING'>('INSTRUCTIONS');
@@ -140,9 +142,20 @@ function MockAssessmentContent() {
     try {
       setLoading(true);
       setError(null);
+      setGenerationStage(1);
+
+      const stageTimer1 = setTimeout(() => setGenerationStage(2), 700);
+      const stageTimer2 = setTimeout(() => setGenerationStage(3), 1500);
+      const stageTimer3 = setTimeout(() => setGenerationStage(4), 2200);
+
       const data = force
         ? await generateDriveMockOA(driveId, true)
         : await getDriveMockOA(driveId);
+
+      clearTimeout(stageTimer1);
+      clearTimeout(stageTimer2);
+      clearTimeout(stageTimer3);
+      setGenerationStage(5);
 
       setAssessment(data);
 
@@ -468,23 +481,26 @@ function MockAssessmentContent() {
               </span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveSection('CODING')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                activeSection === 'CODING'
-                  ? 'bg-white text-black font-bold shadow-xs'
-                  : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              <Code2 className="h-3.5 w-3.5" />
-              <span>Section 2: Coding ({assessment?.questions.length || 5})</span>
-              <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-                activeSection === 'CODING' ? 'bg-black/10 text-black' : 'bg-neutral-800 text-neutral-300'
-              }`}>
-                {attemptedCodingCount}/{assessment?.questions.length || 5}
-              </span>
-            </button>
+            {/* Coding Section Tab (Only if coding questions present) */}
+            {(assessment?.questions?.length ?? 0) > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveSection('CODING')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  activeSection === 'CODING'
+                    ? 'bg-white text-black font-bold shadow-xs'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+              >
+                <Code2 className="h-3.5 w-3.5" />
+                <span>Section 2: Coding ({assessment?.questions.length || 5})</span>
+                <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                  activeSection === 'CODING' ? 'bg-black/10 text-black' : 'bg-neutral-800 text-neutral-300'
+                }`}>
+                  {attemptedCodingCount}/{assessment?.questions.length || 5}
+                </span>
+              </button>
+            )}
           </div>
 
           {/* Right Header items: Timer, Big Data Drawer & Submit Button */}
@@ -512,6 +528,18 @@ function MockAssessmentContent() {
             >
               <BarChart3 className="h-3.5 w-3.5 text-neutral-400" />
               <span className="hidden md:inline">Big Data Insights</span>
+            </button>
+
+            {/* Re-synthesize OA with AI */}
+            <button
+              type="button"
+              onClick={() => fetchAssessment(true)}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white border border-neutral-800 hover:border-neutral-700 transition"
+              title="Re-synthesize fresh questions tailored to this company and role"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 text-neutral-400 ${loading ? 'animate-spin' : ''}`} />
+              <span className="hidden lg:inline">Re-synthesize with AI</span>
             </button>
 
             {/* Finish & Submit Button */}
@@ -547,29 +575,73 @@ function MockAssessmentContent() {
           >
             MCQ ({answeredMcqCount}/{allMcqs.length || 30})
           </button>
-          <button
-            type="button"
-            onClick={() => setActiveSection('CODING')}
-            className={`px-3 py-1 rounded-lg text-xs font-semibold ${
-              activeSection === 'CODING' ? 'bg-white text-black font-bold' : 'text-neutral-400'
-            }`}
-          >
-            Coding ({attemptedCodingCount}/{assessment?.questions.length || 5})
-          </button>
+          {(assessment?.questions?.length ?? 0) > 0 && (
+            <button
+              type="button"
+              onClick={() => setActiveSection('CODING')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold ${
+                activeSection === 'CODING' ? 'bg-white text-black font-bold' : 'text-neutral-400'
+              }`}
+            >
+              Coding ({attemptedCodingCount}/{assessment?.questions.length || 5})
+            </button>
+          )}
         </div>
 
-        {/* Loading State */}
+        {/* Loading State with Progress Bar */}
         {loading && (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-4">
+          <div className="flex-1 flex flex-col items-center justify-center p-8 space-y-6">
             <div className="relative">
-              <div className="w-12 h-12 rounded-full border-2 border-neutral-700 border-t-white animate-spin" />
-              <Cpu className="h-5 w-5 text-white absolute inset-0 m-auto" />
+              <div className="w-16 h-16 rounded-full border-2 border-neutral-800 border-t-white animate-spin" />
+              <Cpu className="h-6 w-6 text-white absolute inset-0 m-auto" />
             </div>
-            <div className="text-center space-y-1">
-              <h3 className="text-sm font-bold text-white">Traversing Web Archives &amp; Running Multi-Agent Synthesizer...</h3>
-              <p className="text-xs text-neutral-400 max-w-sm">
-                Mining real candidate archives across LeetCode, GeeksforGeeks, Glassdoor, and AmbitionBox to curate 5 coding problems and 30 MCQs.
+
+            <div className="text-center space-y-2 max-w-md w-full">
+              <h3 className="text-base font-bold text-white">
+                {generationStage === 1 && 'Traversing Web Archives & Mining Prior Drives...'}
+                {generationStage === 2 && 'Synthesizing Role-Specific MCQs & Technical Stacks...'}
+                {generationStage === 3 && 'Authoring Algorithmic Coding Challenges & Test Suites...'}
+                {generationStage === 4 && 'Calibrating Difficulty & Sandboxing MicroVM Environments...'}
+                {generationStage >= 5 && 'Finalizing Mock Assessment Simulation...'}
+                {generationStage === 0 && 'Initializing Multi-Agent Synthesizer...'}
+              </h3>
+              <p className="text-xs text-neutral-400 leading-relaxed">
+                Analyzing company hiring records, previous recruitment question patterns, and job specifications across campus archives.
               </p>
+
+              {/* Progress Bar */}
+              <div className="w-full bg-neutral-900 rounded-full h-2 overflow-hidden border border-neutral-800 mt-4">
+                <div
+                  className="bg-white h-2 rounded-full transition-all duration-500 ease-out"
+                  style={{
+                    width: `${
+                      generationStage === 1
+                        ? 25
+                        : generationStage === 2
+                        ? 50
+                        : generationStage === 3
+                        ? 75
+                        : generationStage === 4
+                        ? 90
+                        : generationStage >= 5
+                        ? 100
+                        : 10
+                    }%`,
+                  }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] font-mono text-neutral-400 pt-1">
+                <span>Stage {generationStage || 1} of 4</span>
+                <span>
+                  {generationStage === 1 && '25%'}
+                  {generationStage === 2 && '50%'}
+                  {generationStage === 3 && '75%'}
+                  {generationStage === 4 && '90%'}
+                  {generationStage >= 5 && '100%'}
+                  {generationStage === 0 && '10%'}
+                </span>
+              </div>
             </div>
           </div>
         )}

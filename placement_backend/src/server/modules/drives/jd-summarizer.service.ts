@@ -231,7 +231,7 @@ export async function summarizeJobDescription(params: {
   if (apiKey && (fileList.length > 0 || combinedText)) {
     try {
       const ai = new GoogleGenAI({ apiKey });
-      const model = env.MAPPING_MODEL || process.env.MAPPING_MODEL || 'gemini-2.5-flash';
+      const model = env.MAPPING_MODEL || process.env.MAPPING_MODEL || 'gemini-flash-lite-latest';
 
       const promptInstructions = `
 You are an expert college placement director.

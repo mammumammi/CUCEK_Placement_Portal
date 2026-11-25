@@ -6,7 +6,7 @@
 import { relations } from 'drizzle-orm';
 import { users } from './schema/users.schema';
 import { studentProfiles, semesterResults, auditLogs, branchCredits } from './schema/profiles.schema';
-import { drives, applications, applicationRounds } from './schema/drives.schema';
+import { drives, applications, applicationRounds, studentNotifications } from './schema/drives.schema';
 import { mockAssessments, mockSubmissions } from './schema/assessments.schema';
 
 export * from './schema/users.schema';
@@ -114,6 +114,7 @@ export const schema = {
   drives,
   applications,
   applicationRounds,
+  studentNotifications,
   mockAssessments,
   mockSubmissions,
   usersRelations,

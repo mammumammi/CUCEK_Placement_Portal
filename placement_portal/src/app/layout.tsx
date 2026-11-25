@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Placement Portal",
-  description: "University Placement & Internship Management Portal",
+  title: "CUCEK Placement Portal",
+  description: "Cochin University College of Engineering Kuttanad (CUCEK) Placement & Internship Management Portal",
 };
 
 export default function RootLayout({

@@ -6,6 +6,7 @@ import * as profilesService from '@/services/profiles.service';
 
 vi.mock('@/services/profiles.service', () => ({
   listPlacedStudents: vi.fn(),
+  listProfiles: vi.fn().mockResolvedValue([]),
   recordPlacedStudentManual: vi.fn(),
   previewPlacedStudentsExcel: vi.fn(),
   commitPlacedStudentsBatch: vi.fn(),

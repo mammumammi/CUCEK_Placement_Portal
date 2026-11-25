@@ -48,7 +48,9 @@ import {
   Trash2,
   UploadCloud,
   Video,
+  Bell,
 } from 'lucide-react';
+import { ShortlistModal } from '@/components/drives/ShortlistModal';
 import { useAuth } from '@/context/auth-context';
 import { RequireAuth } from '@/components/auth/require-auth';
 import {
@@ -79,6 +81,7 @@ import {
   getPublicPlacementStats,
   uploadMockTestPdf,
   updateDriveDetails,
+  deleteDrive,
   getYouTubeEmbedUrl,
   type CompanyFormatColumn,
   type DriveItem,
@@ -147,6 +150,8 @@ export default function AdminPage() {
 
   // Placement Drives & JD Summarizer State
   const [drivesList, setDrivesList] = useState<DriveItem[]>([]);
+  const [driveTimeFilter, setDriveTimeFilter] = useState<'all' | 'active' | 'previous'>('all');
+  const [shortlistDrive, setShortlistDrive] = useState<DriveItem | null>(null);
   const [isLoadingDrives, setIsLoadingDrives] = useState<boolean>(false);
   const [jdFile, setJdFile] = useState<File | null>(null);
   const [jdFiles, setJdFiles] = useState<File[]>([]);
@@ -167,12 +172,15 @@ export default function AdminPage() {
   const [drivePackageCategory, setDrivePackageCategory] = useState<'GENERAL' | 'DREAM' | 'INTERNSHIP'>('GENERAL');
   const [driveCtcLpa, setDriveCtcLpa] = useState<string>('');
   const [driveYoutubeUrl, setDriveYoutubeUrl] = useState<string>('');
+  const [driveApplicationMode, setDriveApplicationMode] = useState<'excel' | 'link'>('excel');
+  const [driveRegistrationLink, setDriveRegistrationLink] = useState<string>('');
   const [editingYoutubeDriveId, setEditingYoutubeDriveId] = useState<string | null>(null);
   const [editingYoutubeUrl, setEditingYoutubeUrl] = useState<string>('');
   const [isUpdatingYoutube, setIsUpdatingYoutube] = useState<boolean>(false);
   const [driveMinCgpa, setDriveMinCgpa] = useState<string>('6.5');
   const [driveAllowBacklogs, setDriveAllowBacklogs] = useState<boolean>(false);
   const [driveMaxActiveBacklogs, setDriveMaxActiveBacklogs] = useState<string>('0');
+  const [driveCodingEnabled, setDriveCodingEnabled] = useState<boolean>(true);
   const [driveEligibleBranches, setDriveEligibleBranches] = useState<string[]>([...ALL_BRANCHES]);
   const [driveDeadline, setDriveDeadline] = useState<string>('');
 
@@ -494,6 +502,13 @@ export default function AdminPage() {
       setDriveMsg({ type: 'error', text: 'Deadline is required.' });
       return;
     }
+    if (driveApplicationMode === 'link' && !driveRegistrationLink.trim()) {
+      setDriveMsg({
+        type: 'error',
+        text: 'Please enter the company registration link URL or switch to Excel Sheet Format.',
+      });
+      return;
+    }
 
     setIsCreatingDrive(true);
     setDriveMsg(null);
@@ -509,10 +524,11 @@ export default function AdminPage() {
       formData.append('minCgpa', driveMinCgpa.trim() || '0');
       formData.append('allowBacklogs', String(driveAllowBacklogs));
       formData.append('maxActiveBacklogs', driveAllowBacklogs ? (driveMaxActiveBacklogs.trim() || '2') : '0');
+      formData.append('codingEnabled', String(driveCodingEnabled));
       formData.append('eligibleBranches', JSON.stringify(driveEligibleBranches));
       formData.append('deadline', new Date(driveDeadline).toISOString());
       formData.append('totalRounds', driveTotalRounds.trim() || '1');
-      formData.append('notifyEligible', String(driveNotifyEligible));
+      formData.append('notifyEligible', 'false');
 
       const allFiles = jdFiles.length > 0 ? jdFiles : (jdFile ? [jdFile] : []);
       if (allFiles.length > 0) {
@@ -522,8 +538,11 @@ export default function AdminPage() {
         formData.append('file', allFiles[0]);
       }
 
-      if (companyFormatColumns.length > 0) {
+      if (driveApplicationMode === 'excel' && companyFormatColumns.length > 0) {
         formData.append('companyFormat', JSON.stringify(companyFormatColumns));
+      }
+      if (driveApplicationMode === 'link' && driveRegistrationLink.trim()) {
+        formData.append('registrationLink', driveRegistrationLink.trim());
       }
 
       if (mockTestFiles.length > 0) {
@@ -538,10 +557,6 @@ export default function AdminPage() {
         text: `Drive for ${res.company} created successfully!`,
       });
 
-      if (res.notification) {
-        setNotificationModalData(res.notification);
-      }
-
       // Reset form fields
       setDriveCompany('');
       setDriveRole('');
@@ -551,6 +566,8 @@ export default function AdminPage() {
       setJdFiles([]);
       setMockTestFiles([]);
       setCompanyFormatColumns([]);
+      setDriveRegistrationLink('');
+      setDriveApplicationMode('excel');
       setJdRawText('');
       setJdSummary(null);
 
@@ -630,6 +647,22 @@ export default function AdminPage() {
       alert('Failed to update YouTube video URL: ' + (err?.message || 'Unknown error'));
     } finally {
       setIsUpdatingYoutube(false);
+    }
+  };
+
+  const handleDeleteDrive = async (driveId: string, company: string, role?: string | null) => {
+    const driveTitle = `${company}${role ? ` (${role})` : ''}`;
+    if (!window.confirm(`Are you sure you want to take down and permanently delete the recruitment drive for "${driveTitle}"? This will remove all student applications, shortlisted records, and mock assessments associated with this drive.`)) {
+      return;
+    }
+
+    try {
+      await deleteDrive(driveId);
+      setDrivesList((prev) => prev.filter((d) => d.id !== driveId));
+      alert(`Recruitment drive for ${driveTitle} has been deleted successfully.`);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string }; message?: string } }; message?: string };
+      alert(axiosErr.response?.data?.error?.message || axiosErr.response?.data?.message || 'Failed to delete recruitment drive.');
     }
   };
 
@@ -888,8 +921,9 @@ export default function AdminPage() {
 
   const primarySheet = analysisData?.sheets?.[0];
   const mappedFieldValues = new Set(Object.values(columnMapping));
+  const hasStudentIdentity = mappedFieldValues.has('studentId') || mappedFieldValues.has('registrationNumber');
   const missingRequiredFields = CANONICAL_FIELD_OPTIONS.filter(
-    (field) => field.required && !mappedFieldValues.has(field.key)
+    (field) => field.required && !(field.key === 'studentId' ? hasStudentIdentity : mappedFieldValues.has((field as { key: string }).key))
   );
 
   return (
@@ -1187,8 +1221,8 @@ export default function AdminPage() {
                     <button
                       type="button"
                       onClick={handlePreview}
-                      disabled={isPreviewing || isCommitting || missingRequiredFields.length > 0}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition shadow-xs"
+                      disabled={isPreviewing || isCommitting}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-neutral-800 disabled:text-neutral-500 disabled:cursor-not-allowed transition shadow-xs"
                     >
                       {isPreviewing ? 'Validating...' : 'Generate Preview'}
                       <ArrowRight className="h-3.5 w-3.5" />
@@ -1196,20 +1230,20 @@ export default function AdminPage() {
                   </div>
                 </div>
 
-                {/* Missing required warning */}
+                {/* Missing required info banner */}
                 {missingRequiredFields.length > 0 ? (
-                  <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2.5 text-xs text-amber-800">
-                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="mt-4 p-3.5 bg-amber-950/50 border border-amber-800/70 rounded-xl flex items-start gap-2.5 text-xs text-amber-200">
+                    <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
                     <div>
-                      <span className="font-semibold">Missing Student ID Column: </span>
-                      Please map the <strong>Student ID / Reg No</strong> column before previewing.
+                      <span className="font-semibold text-white">Auto-Generated Student ID Enabled: </span>
+                      No <strong>Student ID / Reg No</strong> column was mapped in this sheet (added at the bottom below). You can still generate the preview — temporary login credentials will be created so students can log in, enter their official Roll No &amp; details, and get verified by coordinators!
                     </div>
                   </div>
                 ) : (
-                  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2.5 text-xs text-blue-800">
-                    <CheckCircle className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+                  <div className="mt-4 p-3.5 bg-neutral-900 border border-neutral-700 rounded-xl flex items-start gap-2.5 text-xs text-neutral-200">
+                    <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
                     <div>
-                      <span className="font-semibold">Flexible Registration: </span>
+                      <span className="font-semibold text-white">Flexible Registration: </span>
                       Missing fields (Name, Email, Phone, Batch, DOB) can be left unmapped—students will be prompted to fill them in automatically on their first login!
                     </div>
                   </div>
@@ -1242,7 +1276,7 @@ export default function AdminPage() {
                               <select
                                 value={currentMappedVal}
                                 onChange={(e) => handleMappingChange(header, e.target.value)}
-                                className="w-full max-w-xs border border-neutral-700 rounded-md px-2.5 py-1.5 text-xs font-medium text-white bg-[#18181b] text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                className="w-full max-w-xs border border-neutral-700 rounded-md px-2.5 py-1.5 text-xs font-medium text-white bg-[#18181b] focus:outline-none focus:ring-2 focus:ring-indigo-500"
                               >
                                 <option value="">-- Ignore Column --</option>
                                 <optgroup label="Required Canonical Fields">
@@ -1263,19 +1297,19 @@ export default function AdminPage() {
                             </td>
                             <td className="px-4 py-3">
                               {match?.source === 'exact' ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950/70 text-emerald-300 border border-emerald-800/70">
                                   Exact Match
                                 </span>
                               ) : match?.source === 'pattern' ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100 text-blue-800">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-neutral-800 text-neutral-200 border border-neutral-700">
                                   Pattern Match
                                 </span>
                               ) : match?.source === 'ai' ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-100 text-purple-800">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-950/70 text-purple-300 border border-purple-800/70">
                                   AI Suggested
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-neutral-400">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-neutral-800 text-neutral-300 border border-neutral-700">
                                   Unmatched
                                 </span>
                               )}
@@ -1286,6 +1320,24 @@ export default function AdminPage() {
                           </tr>
                         );
                       })}
+                      {missingRequiredFields.map((missingField) => (
+                        <tr key={`missing-${missingField.key}`} className="bg-amber-950/20 border-t border-amber-800/40">
+                          <td className="px-4 py-3 font-mono text-amber-300 italic">
+                            (Not in Excel Sheet)
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-white">
+                            {missingField.label} *
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-950/70 text-amber-300 border border-amber-800/70">
+                              Auto-Generated on Import
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-neutral-400 font-mono text-[11px]">
+                            Student enters on login
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -1603,7 +1655,7 @@ export default function AdminPage() {
                     Placement Drives &amp; Job Description (JD) AI Summarizer
                   </h2>
                   <p className="text-xs text-neutral-400 mt-1 max-w-3xl">
-                    Upload recruitment JD PDFs or paste raw text. The Gemini AI engine automatically categorizes compensation packages into <strong>General (&lt; 7 LPA)</strong>, <strong>Dream (≥ 7 LPA)</strong>, and <strong>Internship</strong>, extracts CGPA &amp; supply/backlog rules, and dispatches automated invitation emails with direct spreadsheet links to all eligible students.
+                    Upload recruitment JD PDFs or paste raw text. The Gemini AI engine automatically categorizes compensation packages into <strong>General (&lt; 7 LPA)</strong>, <strong>Dream (≥ 7 LPA)</strong>, and <strong>Internship</strong>, extracts CGPA &amp; supply/backlog rules, and publishes live application spreadsheets for eligible students.
                   </p>
                 </div>
                 <button
@@ -1716,7 +1768,7 @@ export default function AdminPage() {
                             setJdSummaryMsg(null);
                           }}
                           placeholder="Paste additional job description text here (e.g. eligibility requirements, CTC package, role details)..."
-                          className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          className="w-full border border-neutral-700 rounded-xl px-3.5 py-2.5 bg-[#18181b] text-white text-xs placeholder:text-neutral-500 focus:border-white focus:outline-hidden"
                         />
                       </div>
 
@@ -1724,7 +1776,7 @@ export default function AdminPage() {
                         type="button"
                         onClick={handleSummarizeJd}
                         disabled={isSummarizingJd || (jdFiles.length === 0 && !jdFile && !jdRawText.trim())}
-                        className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 transition shadow-xs"
+                        className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 disabled:bg-neutral-900 disabled:text-neutral-500 disabled:border-neutral-800 border border-white transition shadow-xs"
                       >
                         <Sparkles className={`h-4 w-4 ${isSummarizingJd ? 'animate-spin' : ''}`} />
                         {isSummarizingJd ? 'Synthesizing Documents with Gemini AI...' : `Analyze ${jdFiles.length > 1 ? `${jdFiles.length} Documents` : 'JD'} & Auto-Fill Form`}
@@ -1733,10 +1785,10 @@ export default function AdminPage() {
                       {/* AI Extraction Feedback Banner */}
                       {jdSummaryMsg && (
                         <div
-                          className={`p-3 rounded-lg border text-xs flex items-start gap-2 ${
+                          className={`p-3 rounded-xl border text-xs flex items-start gap-2 ${
                             jdSummaryMsg.type === 'success'
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                              : 'bg-red-50 border-red-200 text-red-800'
+                              ? 'bg-emerald-950/60 border-emerald-800/70 text-emerald-200'
+                              : 'bg-red-950/60 border-red-800/70 text-red-200'
                           }`}
                         >
                           {jdSummaryMsg.type === 'success' ? (
@@ -1961,6 +2013,22 @@ export default function AdminPage() {
                         )}
                       </div>
 
+                      {/* Mock OA Coding Questions Toggle */}
+                      <div className="p-3 bg-neutral-900/60 rounded-lg border border-neutral-800">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-neutral-200">
+                          <input
+                            type="checkbox"
+                            checked={driveCodingEnabled}
+                            onChange={(e) => setDriveCodingEnabled(e.target.checked)}
+                            className="rounded border-neutral-700 text-white focus:ring-indigo-500 h-4 w-4"
+                          />
+                          <span>Include Coding Questions in Mock OA Assessment</span>
+                        </label>
+                        <p className="text-[11px] text-neutral-400 mt-1 pl-6">
+                          Uncheck if this recruitment drive only conducts aptitude/technical MCQs with no live coding round.
+                        </p>
+                      </div>
+
                       {/* Eligible Departments / Branches Multi-Select */}
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
@@ -2041,73 +2109,141 @@ export default function AdminPage() {
                         />
                       </div>
 
-                      {/* Company Required Excel Sheet Format */}
-                      <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200 space-y-3">
-                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5">
-                          <div className="flex items-start gap-2">
-                            <FileSpreadsheet className="h-5 w-5 text-emerald-600 mt-0.5 shrink-0" />
-                            <div>
-                              <h4 className="text-xs font-bold text-white">
-                                Company Required Excel Sheet Format (Optional)
-                              </h4>
-                              <p className="text-[11px] text-neutral-400">
-                                Specify or upload the custom column headers required by the company for exporting candidate data.
-                              </p>
-                            </div>
+                      {/* Candidate Registration Method: Excel Sheet Format OR Direct Registration Link */}
+                      <div className="p-4 bg-[#121215] rounded-xl border border-neutral-800 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <h4 className="text-xs font-bold text-white">
+                              Candidate Registration Format
+                            </h4>
+                            <p className="text-[11px] text-neutral-400">
+                              Choose whether to configure a company Excel sheet format or provide a direct company registration link.
+                            </p>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <input
-                              type="file"
-                              id="company-template-upload"
-                              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                              onChange={handleUploadCompanyTemplate}
-                              className="hidden"
-                            />
-                            <label
-                              htmlFor="company-template-upload"
-                              className={`cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 transition ${
-                                isParsingTemplate ? 'opacity-50 pointer-events-none' : ''
-                              }`}
-                            >
-                              <UploadCloud className="h-3.5 w-3.5" />
-                              {isParsingTemplate ? 'Analyzing Template...' : 'Upload Template (.xlsx)'}
-                            </label>
+                          <div className="inline-flex rounded-lg border border-neutral-800 bg-[#09090b] p-1 shrink-0">
                             <button
                               type="button"
-                              onClick={handleAddCompanyColumn}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-neutral-300 bg-[#18181b] text-white hover:bg-gray-100 border border-neutral-700 transition"
+                              onClick={() => setDriveApplicationMode('excel')}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition whitespace-nowrap ${
+                                driveApplicationMode === 'excel'
+                                  ? 'bg-white text-black shadow-xs'
+                                  : 'text-neutral-400 hover:text-white'
+                              }`}
                             >
-                              <Plus className="h-3.5 w-3.5" />
-                              Add Column
+                              <FileSpreadsheet className="h-3.5 w-3.5" />
+                              Excel Sheet Format
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDriveApplicationMode('link')}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition whitespace-nowrap ${
+                                driveApplicationMode === 'link'
+                                  ? 'bg-white text-black shadow-xs'
+                                  : 'text-neutral-400 hover:text-white'
+                              }`}
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              Registration Link
                             </button>
                           </div>
                         </div>
+
+                        {driveApplicationMode === 'link' ? (
+                          <div className="space-y-2 pt-1">
+                            <label className="block text-[11px] font-semibold text-neutral-300">
+                              Company Registration Portal URL <span className="text-red-400">*</span>
+                            </label>
+                            <div className="flex flex-col sm:flex-row gap-2">
+                              <input
+                                type="url"
+                                value={driveRegistrationLink}
+                                onChange={(e) => setDriveRegistrationLink(e.target.value)}
+                                placeholder="https://careers.company.com/campus-apply/..."
+                                className="flex-1 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-white bg-[#18181b] placeholder:text-neutral-500 focus:ring-2 focus:ring-white/30 focus:outline-hidden"
+                              />
+                              {driveRegistrationLink.trim() && (
+                                <a
+                                  href={driveRegistrationLink.trim()}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition whitespace-nowrap"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                  Test Link
+                                </a>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-neutral-400">
+                              Eligible students will see a direct &quot;Register on Company Portal&quot; button on their dashboard and drive page.
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5 pt-1">
+                              <div className="flex items-start gap-2">
+                                <FileSpreadsheet className="h-5 w-5 text-emerald-500 mt-0.5 shrink-0" />
+                                <div>
+                                  <h4 className="text-xs font-bold text-white">
+                                    Company Required Excel Sheet Format (Optional)
+                                  </h4>
+                                  <p className="text-[11px] text-neutral-400">
+                                    Specify or upload the custom column headers required by the company for exporting candidate data.
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <input
+                                  type="file"
+                                  id="company-template-upload"
+                                  accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                  onChange={handleUploadCompanyTemplate}
+                                  className="hidden"
+                                />
+                                <label
+                                  htmlFor="company-template-upload"
+                                  className={`cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 transition ${
+                                    isParsingTemplate ? 'opacity-50 pointer-events-none' : ''
+                                  }`}
+                                >
+                                  <UploadCloud className="h-3.5 w-3.5" />
+                                  {isParsingTemplate ? 'Analyzing Template...' : 'Upload Template (.xlsx)'}
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={handleAddCompanyColumn}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition"
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                  Add Column
+                                </button>
+                              </div>
+                            </div>
 
                         {templateUploadMsg && (
                           <div
                             className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
                               templateUploadMsg.type === 'success'
-                                ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                                : 'bg-red-50 text-red-800 border border-red-200'
+                                ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/60'
+                                : 'bg-red-950/60 text-red-300 border border-red-800/60'
                             }`}
                           >
                             {templateUploadMsg.type === 'success' ? (
-                              <CheckCircle className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                              <CheckCircle className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
                             ) : (
-                              <AlertTriangle className="h-3.5 w-3.5 text-red-600 shrink-0" />
+                              <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0" />
                             )}
                             <span>{templateUploadMsg.text}</span>
                           </div>
                         )}
 
                         {companyFormatColumns.length === 0 ? (
-                          <div className="py-3 px-4 text-center border border-dashed border-neutral-700 rounded-lg text-xs text-neutral-400 bg-[#18181b] text-white">
+                          <div className="py-3 px-4 text-center border border-dashed border-neutral-700 rounded-lg text-xs text-neutral-400 bg-[#18181b]">
                             No custom company columns specified. You can upload the company&apos;s template (.xlsx) or click &quot;Add Column&quot; to configure required headers. If none specified, standard canonical columns will be used.
                           </div>
                         ) : (
                           <div className="overflow-x-auto border border-neutral-800 rounded-lg bg-[#18181b] text-white">
                             <table className="w-full text-xs divide-y divide-neutral-800">
-                              <thead className="bg-gray-100 text-neutral-300 font-semibold text-left">
+                              <thead className="bg-neutral-900 text-neutral-300 font-semibold text-left">
                                 <tr>
                                   <th className="px-3 py-2 w-10">#</th>
                                   <th className="px-3 py-2">Company Header (Required in Export)</th>
@@ -2235,6 +2371,8 @@ export default function AdminPage() {
                             </table>
                           </div>
                         )}
+                          </>
+                        )}
                       </div>
 
                       {/* Mock Test Reference PDF (Multi-Agent OA Engine) */}
@@ -2307,23 +2445,6 @@ export default function AdminPage() {
                         )}
                       </div>
 
-                      {/* Broadcast Email Option */}
-                      <div className="p-3 bg-neutral-900/70 rounded-lg border border-indigo-100 flex items-start gap-2.5">
-                        <input
-                          type="checkbox"
-                          id="drive-notify-email"
-                          checked={driveNotifyEligible}
-                          onChange={(e) => setDriveNotifyEligible(e.target.checked)}
-                          className="rounded border-neutral-700 text-white focus:ring-indigo-500 h-4 w-4 mt-0.5"
-                        />
-                        <label
-                          htmlFor="drive-notify-email"
-                          className="cursor-pointer text-xs text-indigo-950 leading-relaxed font-medium"
-                        >
-                          <strong>Broadcast invitation email to all eligible students:</strong> Automatically filters students by branch, CGPA, and supply criteria and sends them the application sheet link.
-                        </label>
-                      </div>
-
                       {driveMsg && (
                         <div
                           className={`p-3 rounded-lg border text-xs flex items-start gap-2 ${
@@ -2344,7 +2465,7 @@ export default function AdminPage() {
                       <button
                         type="submit"
                         disabled={isCreatingDrive}
-                        className="inline-flex items-center justify-center gap-2 w-full py-3 px-5 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 transition shadow-sm"
+                        className="inline-flex items-center justify-center gap-2 w-full py-3 px-5 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 disabled:bg-neutral-900 disabled:text-neutral-500 disabled:border-neutral-800 border border-white transition shadow-sm"
                       >
                         <Briefcase className="h-4 w-4" />
                         {isCreatingDrive ? 'Publishing Placement Drive...' : 'Publish Placement Drive & Launch Spreadsheet'}
@@ -2356,16 +2477,34 @@ export default function AdminPage() {
                 {/* Column 2: Published Placement Drives (5 Cols) */}
                 <div className="lg:col-span-5 space-y-4">
                   <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs p-6">
-                    <div className="flex items-center justify-between border-b border-neutral-800 pb-3 mb-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-800 pb-3 mb-4">
                       <div className="flex items-center gap-2">
                         <Building className="h-5 w-5 text-white" />
                         <h3 className="text-sm font-bold text-white">
                           Published Recruitment Drives
                         </h3>
                       </div>
-                      <span className="text-xs font-bold px-2.5 py-0.5 bg-gray-100 text-neutral-300 rounded-full">
+                      <span className="text-xs font-bold px-3 py-1 bg-neutral-900 border border-neutral-700 text-neutral-200 rounded-full whitespace-nowrap shrink-0">
                         {drivesList.length} Listed
                       </span>
+                    </div>
+
+                    {/* All / Active / Previous Drives Filter */}
+                    <div className="flex items-center gap-1.5 bg-[#18181b] border border-neutral-800 rounded-xl p-1 mb-4 text-xs font-medium">
+                      {(['all', 'active', 'previous'] as const).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setDriveTimeFilter(t)}
+                          className={`flex-1 px-2.5 py-1.5 rounded-lg transition whitespace-nowrap capitalize ${
+                            driveTimeFilter === t
+                              ? 'bg-white text-black font-bold shadow-2xs'
+                              : 'text-neutral-400 hover:text-white'
+                          }`}
+                        >
+                          {t === 'previous' ? 'Previous Drives' : t}
+                        </button>
+                      ))}
                     </div>
 
                     {isLoadingDrives && drivesList.length === 0 ? (
@@ -2379,10 +2518,17 @@ export default function AdminPage() {
                       </div>
                     ) : (
                       <div className="space-y-4 max-h-[800px] overflow-y-auto pr-1">
-                        {drivesList.map((d) => (
+                        {drivesList
+                          .filter((d) => {
+                            const isPrev = Boolean(d.isPrevious || !d.open);
+                            if (driveTimeFilter === 'active') return !isPrev;
+                            if (driveTimeFilter === 'previous') return isPrev;
+                            return true;
+                          })
+                          .map((d) => (
                           <div
                             key={d.id}
-                            className="p-4 rounded-xl border border-neutral-800 bg-neutral-900/60/60 hover:bg-[#18181b] text-white hover:border-indigo-300 transition shadow-2xs space-y-3"
+                            className="p-4 rounded-xl border border-neutral-800 bg-neutral-900/60 hover:bg-[#18181b] text-white hover:border-neutral-600 transition shadow-2xs space-y-3"
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0 flex-1 pr-1">
@@ -2398,22 +2544,22 @@ export default function AdminPage() {
                               </span>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 text-[11px] text-neutral-400 bg-[#18181b] text-white p-2.5 rounded-lg border border-gray-100">
+                            <div className="grid grid-cols-2 gap-2 text-[11px] text-neutral-400 bg-[#18181b] text-white p-3 rounded-lg border border-neutral-800">
                               <div>
-                                <span className="text-gray-400 block">Package:</span>
-                                <span className="font-bold text-emerald-700 font-mono">
+                                <span className="text-neutral-500 block">Package:</span>
+                                <span className="font-bold text-emerald-400 font-mono">
                                   {d.ctcLpa !== null ? `${d.ctcLpa} LPA` : 'As per policy'}
                                 </span>
                               </div>
                               <div>
-                                <span className="text-gray-400 block">Min CGPA:</span>
+                                <span className="text-neutral-500 block">Min CGPA:</span>
                                 <span className="font-semibold text-white">
                                   {d.minCgpa > 0 ? d.minCgpa : 'None'}
                                 </span>
                               </div>
                               <div>
-                                <span className="text-gray-400 block">Backlogs / Supply:</span>
-                                <span className={`font-semibold ${d.allowBacklogs ? 'text-amber-700' : 'text-emerald-700'}`}>
+                                <span className="text-neutral-500 block">Backlogs / Supply:</span>
+                                <span className={`font-semibold ${d.allowBacklogs ? 'text-amber-400' : 'text-emerald-400'}`}>
                                   {d.allowBacklogs ? `Allowed (≤ ${d.maxActiveBacklogs})` : 'Zero Only'}
                                 </span>
                               </div>
@@ -2459,15 +2605,45 @@ export default function AdminPage() {
                               </div>
                             )}
 
+                            {/* Selected / Placed Candidates in this Drive */}
+                            {d.placedCandidates && d.placedCandidates.length > 0 && (
+                              <div className="p-2.5 bg-emerald-950/30 border border-emerald-800/60 rounded-xl space-y-1.5">
+                                <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+                                  <Award className="h-3.5 w-3.5 text-emerald-400" />
+                                  <span>Selected / Placed ({d.placedCandidates.length})</span>
+                                </span>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {d.placedCandidates.map((pc) => (
+                                    <span
+                                      key={pc.userId}
+                                      className="px-2 py-0.5 rounded-full bg-black text-white border border-emerald-700/60 text-[10px] font-semibold whitespace-nowrap"
+                                    >
+                                      {pc.name || pc.studentId}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
                             {/* Action Buttons */}
                             <div className="pt-2 border-t border-neutral-800 flex flex-wrap items-center gap-2">
                               <Link
                                 href={`/drives/${d.id}`}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition shadow-2xs"
+                                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-black bg-white hover:bg-neutral-200 transition shadow-2xs whitespace-nowrap"
                               >
                                 <FileText className="h-3.5 w-3.5" />
                                 Open Application Sheet
                               </Link>
+
+                              <button
+                                type="button"
+                                onClick={() => setShortlistDrive(d)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition whitespace-nowrap"
+                                title="Upload shortlisted candidates PDF and notify students"
+                              >
+                                <Bell className="h-3.5 w-3.5 text-amber-400" />
+                                Shortlist PDF
+                              </button>
 
                               <button
                                 type="button"
@@ -2511,27 +2687,17 @@ export default function AdminPage() {
                                   setBatchFieldModalDriveId(d.id);
                                   setBatchFieldMsg(null);
                                 }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-neutral-300 bg-gray-100 hover:bg-gray-200 border border-neutral-700 transition"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-neutral-200 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition whitespace-nowrap"
                               >
                                 <Plus className="h-3.5 w-3.5 text-white" />
                                 Add Batch Field
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleNotifyDrive(d.id)}
-                                disabled={isNotifyingDriveId === d.id}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-neutral-900 hover:bg-indigo-100 border border-indigo-200 transition"
-                              >
-                                <Mail className={`h-3.5 w-3.5 ${isNotifyingDriveId === d.id ? 'animate-spin' : ''}`} />
-                                {isNotifyingDriveId === d.id ? 'Sending...' : 'Broadcast Email'}
                               </button>
 
                               <a
                                 href={`http://localhost:4000/api/drives/${d.id}/export`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-300 bg-[#18181b] text-white hover:bg-neutral-900/60 border border-neutral-800 transition"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-200 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition whitespace-nowrap"
                                 title="Download standard report with consolidated candidates and branch funnel"
                               >
                                 <Download className="h-3.5 w-3.5 text-neutral-400" />
@@ -2542,12 +2708,36 @@ export default function AdminPage() {
                                 href={`http://localhost:4000/api/drives/${d.id}/export?format=company`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-800/70 transition whitespace-nowrap"
                                 title="Download candidates formatted exactly according to the company's required Excel schema"
                               >
-                                <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-600" />
+                                <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
                                 Company Format (.xlsx)
                               </a>
+
+                              {d.registrationLink && (
+                                <a
+                                  href={d.registrationLink}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-300 bg-blue-950/60 hover:bg-blue-900/60 border border-blue-800/70 transition whitespace-nowrap"
+                                  title="Open external company registration link"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5 text-blue-400" />
+                                  Registration Link
+                                </a>
+                              )}
+
+                              {/* Take Down / Delete Drive Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteDrive(d.id, d.company, d.role)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-red-400 bg-red-950/40 hover:bg-red-900/60 border border-red-800/60 transition whitespace-nowrap ml-auto"
+                                title="Take down / permanently delete this recruitment drive"
+                              >
+                                <Trash2 className="h-3.5 w-3.5 text-red-400" />
+                                <span>Take Down Drive</span>
+                              </button>
                             </div>
                           </div>
                         ))}
@@ -2556,104 +2746,6 @@ export default function AdminPage() {
                   </div>
                 </div>
               </div>
-
-              {/* Email Notification Broadcast Modal */}
-              {notificationModalData && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-                  <div className="bg-[#18181b] text-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden border border-neutral-800">
-                    <div className="p-6 border-b border-neutral-800 flex items-center justify-between bg-linear-to-r from-indigo-50 via-white to-indigo-50/30">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2.5 bg-indigo-100 text-white rounded-xl">
-                          <Mail className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <h3 className="text-base font-bold text-white">
-                            Broadcast Announcement Email Delivered
-                          </h3>
-                          <p className="text-xs text-neutral-400">
-                            {notificationModalData.driveTitle}
-                          </p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setNotificationModalData(null)}
-                        className="text-gray-400 hover:text-neutral-400 p-1 rounded-md"
-                      >
-                        <X className="h-5 w-5" />
-                      </button>
-                    </div>
-
-                    <div className="p-6 space-y-4 text-xs">
-                      <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-xl text-emerald-900 flex items-center justify-between">
-                        <div>
-                          <span className="font-bold block text-sm">
-                            {notificationModalData.sentCount} Invitations Dispatched
-                          </span>
-                          <span className="text-xs text-emerald-700">
-                            Delivered to all {notificationModalData.totalEligible} eligible students matching the drive criteria.
-                          </span>
-                        </div>
-                        <span className="font-mono text-xs font-bold px-2.5 py-1 bg-emerald-200/60 text-emerald-800 rounded-lg">
-                          100% Success
-                        </span>
-                      </div>
-
-                      <div className="p-3 bg-neutral-900/60 rounded-lg border border-neutral-800">
-                        <span className="text-neutral-400 block font-medium">Application Sheet Link Sent in Email:</span>
-                        <a
-                          href={`http://localhost:3000/drives/${notificationModalData.driveId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-white font-mono font-bold hover:underline mt-1 block truncate"
-                        >
-                          http://localhost:3000/drives/{notificationModalData.driveId}
-                        </a>
-                      </div>
-
-                      <div>
-                        <h4 className="font-bold text-white mb-2">
-                          Notified Eligible Candidates ({notificationModalData.recipients.length}):
-                        </h4>
-                        <div className="max-h-60 overflow-y-auto border border-neutral-800 rounded-lg">
-                          <table className="min-w-full divide-y divide-neutral-800 text-xs">
-                            <thead className="bg-neutral-900/60 text-neutral-400 font-semibold sticky top-0">
-                              <tr>
-                                <th className="px-3 py-2 text-left">Student Name</th>
-                                <th className="px-3 py-2 text-left">Roll Number</th>
-                                <th className="px-3 py-2 text-left">Branch</th>
-                                <th className="px-3 py-2 text-left">CGPA</th>
-                                <th className="px-3 py-2 text-left">Email Address</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-neutral-800 bg-[#101012]">
-                              {notificationModalData.recipients.map((r) => (
-                                <tr key={r.studentId} className="hover:bg-neutral-900/60">
-                                  <td className="px-3 py-2 font-medium text-white">{r.name}</td>
-                                  <td className="px-3 py-2 font-mono text-neutral-400">{r.studentId}</td>
-                                  <td className="px-3 py-2 font-bold text-white">{r.branch}</td>
-                                  <td className="px-3 py-2 font-bold text-emerald-700">{r.cgpa.toFixed(2)}</td>
-                                  <td className="px-3 py-2 font-mono text-neutral-400">{r.email}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      <div className="pt-2 flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => setNotificationModalData(null)}
-                          className="px-5 py-2 bg-[#18181b] text-white hover:bg-neutral-200 text-black font-bold font-semibold rounded-lg text-xs transition"
-                        >
-                          Done
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* Batch Info Collection Modal */}
               {batchFieldModalDriveId && (
@@ -3219,37 +3311,37 @@ export default function AdminPage() {
                         </span>
                       </div>
 
-                      <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200">
-                        <span className="text-[11px] font-semibold text-emerald-700 block uppercase">Placed Students</span>
-                        <span className="text-xl font-extrabold text-emerald-900 mt-1 block">
+                      <div className="p-4 rounded-xl bg-emerald-950/40 border border-emerald-800/60">
+                        <span className="text-[11px] font-semibold text-emerald-400 block uppercase">Placed Students</span>
+                        <span className="text-xl font-extrabold text-white mt-1 block font-mono">
                           {liveStatsSummary.totalPlaced}
                         </span>
                       </div>
 
-                      <div className="p-4 rounded-xl bg-neutral-900 border border-indigo-200">
-                        <span className="text-[11px] font-semibold text-white block uppercase">Placement %</span>
-                        <span className="text-xl font-extrabold text-indigo-900 mt-1 block">
+                      <div className="p-4 rounded-xl bg-neutral-900 border border-neutral-800">
+                        <span className="text-[11px] font-semibold text-neutral-400 block uppercase">Placement %</span>
+                        <span className="text-xl font-extrabold text-white mt-1 block font-mono">
                           {liveStatsSummary.placementRate}%
                         </span>
                       </div>
 
                       <div className="p-4 rounded-xl bg-neutral-900/60 border border-neutral-800">
                         <span className="text-[11px] font-semibold text-neutral-400 block uppercase">Average Package</span>
-                        <span className="text-xl font-extrabold text-gray-950 mt-1 block">
+                        <span className="text-xl font-extrabold text-white mt-1 block font-mono">
                           {liveStatsSummary.averagePackage ? `${liveStatsSummary.averagePackage} LPA` : 'N/A'}
                         </span>
                       </div>
 
-                      <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
-                        <span className="text-[11px] font-semibold text-amber-700 block uppercase">Highest Package</span>
-                        <span className="text-xl font-extrabold text-amber-900 mt-1 block">
+                      <div className="p-4 rounded-xl bg-amber-950/40 border border-amber-800/60">
+                        <span className="text-[11px] font-semibold text-amber-400 block uppercase">Highest Package</span>
+                        <span className="text-xl font-extrabold text-white mt-1 block font-mono">
                           {liveStatsSummary.highestPackage ? `${liveStatsSummary.highestPackage} LPA` : 'N/A'}
                         </span>
                       </div>
 
-                      <div className="p-4 rounded-xl bg-purple-50 border border-purple-200">
-                        <span className="text-[11px] font-semibold text-purple-700 block uppercase">Active Drives</span>
-                        <span className="text-xl font-extrabold text-purple-900 mt-1 block">
+                      <div className="p-4 rounded-xl bg-purple-950/40 border border-purple-800/60">
+                        <span className="text-[11px] font-semibold text-purple-400 block uppercase">Active Drives</span>
+                        <span className="text-xl font-extrabold text-white mt-1 block font-mono">
                           {liveStatsSummary.totalDrives}
                         </span>
                       </div>
@@ -3342,6 +3434,17 @@ export default function AdminPage() {
           )}
           </div>
         </div>
+
+        {/* SHORTLIST PDF & NOTIFICATION MODAL */}
+        {shortlistDrive && (
+          <ShortlistModal
+            drive={shortlistDrive}
+            onClose={() => setShortlistDrive(null)}
+            onCompleted={() => {
+              void fetchDrivesList();
+            }}
+          />
+        )}
       </div>
     </RequireAuth>
   );

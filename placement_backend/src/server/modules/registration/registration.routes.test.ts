@@ -83,8 +83,8 @@ describe('Registration Module (/api/registration)', () => {
     expect(res.body.rows[0].cgpa).toBe(8.76); // (20*8.5 + 22*9.0) / 42 = 368 / 42 = 8.76
   });
 
-  // 2. Cover: missing column
-  it('2. missing column: flags sheet when a required header column (studentId) is omitted', async () => {
+  // 2. Cover: flexible department import when studentId is omitted
+  it('2. missing studentId column: auto-generates temporary Student ID so students can complete & verify on login', async () => {
     // Exclude 'studentId' from headers
     const incompleteHeaders = ['name', 'branch', 'batch', 'activeBacklogs'];
     const buffer = await createExcelBuffer([validStudentRow], incompleteHeaders);
@@ -95,8 +95,8 @@ describe('Registration Module (/api/registration)', () => {
       .attach('file', buffer, 'missing_columns.xlsx');
 
     expect(res.status).toBe(200);
-    expect(res.body.summary.invalid).toBe(1);
-    expect(res.body.rows[0].errors.some((e: string) => e.includes('missing required column headers'))).toBe(true);
+    expect(res.body.summary.valid).toBe(1);
+    expect(res.body.rows[0].data.studentId).toMatch(/^TEMP-CSE-/);
   });
 
   it('2b. partial profile: allows creation when optional fields like email/phone/batch are missing', async () => {

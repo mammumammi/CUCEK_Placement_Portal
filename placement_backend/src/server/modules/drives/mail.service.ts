@@ -9,10 +9,26 @@ import type { Db } from '@/core/db/client';
 import { drives, studentProfiles } from '@/core/db';
 import { PortalError } from '@/core/errors/portal-error';
 
+export interface NotificationRecipient {
+  userId: string;
+  name: string;
+  email: string;
+  studentId: string;
+  branch: string;
+  cgpa: number;
+  activeBacklogs: number;
+  applicationLink: string;
+}
+
 export interface EmailNotificationResult {
   success: boolean;
   count: number;
   notifiedEmails: string[];
+  driveId: string;
+  driveTitle: string;
+  totalEligible: number;
+  sentCount: number;
+  recipients: NotificationRecipient[];
   drive: {
     id: string;
     company: string;
@@ -45,6 +61,7 @@ export async function notifyEligibleStudentsForDrive(
   // Fetch all student profiles with email addresses
   const allStudents = await db
     .select({
+      userId: studentProfiles.userId,
       studentId: studentProfiles.studentId,
       registrationNumber: studentProfiles.registrationNumber,
       name: studentProfiles.name,
@@ -98,10 +115,28 @@ export async function notifyEligibleStudentsForDrive(
     );
   }
 
+  const recipients: NotificationRecipient[] = eligibleStudents.map((s) => ({
+    userId: s.userId || s.studentId,
+    name: s.name || s.studentId,
+    email: s.email!,
+    studentId: s.studentId,
+    branch: s.branch || '',
+    cgpa: s.cgpa ?? 0,
+    activeBacklogs: s.activeBacklogs ?? 0,
+    applicationLink: `${sheetLink}?student=${encodeURIComponent(s.studentId)}`,
+  }));
+
+  const driveTitle = `${drive.company}${drive.role ? ` - ${drive.role}` : ''}`;
+
   return {
     success: true,
     count: eligibleStudents.length,
     notifiedEmails,
+    driveId: drive.id,
+    driveTitle,
+    totalEligible: eligibleStudents.length,
+    sentCount: eligibleStudents.length,
+    recipients,
     drive: {
       id: drive.id,
       company: drive.company,

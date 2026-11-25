@@ -595,6 +595,9 @@ export async function generateDriveMockOA(
     await db.delete(mockAssessments).where(eq(mockAssessments.driveId, driveId));
   }
 
+  // If drive does not have codingEnabled, exclude coding questions
+  const questionsToSave = drive.codingEnabled === false ? [] : multiAgentResult.questions;
+
   await db.insert(mockAssessments).values({
     id: assessmentId,
     driveId: drive.id,
@@ -602,10 +605,10 @@ export async function generateDriveMockOA(
     role: drive.role,
     title: multiAgentResult.title,
     durationMinutes: multiAgentResult.durationMinutes,
-    totalQuestions: multiAgentResult.questions.length,
+    totalQuestions: questionsToSave.length,
     topicDistribution: multiAgentResult.topicDistribution,
     analyticsInsights: multiAgentResult.analyticsInsights,
-    questions: multiAgentResult.questions,
+    questions: questionsToSave,
     mcqQuestions: multiAgentResult.mcqQuestions,
     dataProvenance: multiAgentResult.dataProvenance,
     mockTestPdfUrls: multiAgentResult.mockTestPdfUrls,
@@ -631,13 +634,21 @@ export async function getDriveMockOA(db: Db, driveId: string) {
     .where(eq(mockAssessments.driveId, driveId))
     .limit(1);
 
-  // Return existing only if it has complete 30 MCQs, 5 coding problems, and non-empty dataProvenance sources
+  const [drive] = await db
+    .select()
+    .from(drives)
+    .where(eq(drives.id, driveId))
+    .limit(1);
+
+  const minCodingQuestions = drive && drive.codingEnabled === false ? 0 : 5;
+
+  // Return existing only if it has complete 30 MCQs and valid questions count
   if (
     existing &&
     Array.isArray(existing.mcqQuestions) &&
     existing.mcqQuestions.length >= 30 &&
     Array.isArray(existing.questions) &&
-    existing.questions.length >= 5 &&
+    existing.questions.length >= minCodingQuestions &&
     existing.dataProvenance &&
     typeof existing.dataProvenance === 'object' &&
     Array.isArray(existing.dataProvenance.sources) &&

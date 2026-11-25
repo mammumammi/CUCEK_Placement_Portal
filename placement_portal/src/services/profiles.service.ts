@@ -352,3 +352,68 @@ export async function updateStudentPlacementStatus(
   return response.data;
 }
 
+/**
+ * Permanently deletes a student record and their associated account.
+ */
+export async function deleteStudent(
+  studentId: string
+): Promise<{ success: boolean; deletedStudentId: string; name?: string; message: string }> {
+  const response = await apiClient.delete<{
+    success: boolean;
+    deletedStudentId: string;
+    name?: string;
+    message: string;
+  }>(`/profiles/${studentId}`);
+  return response.data;
+}
+
+/**
+ * Deletes a batch of students filtered by branch, batch, or creation timestamp.
+ */
+export async function deleteBatchStudents(filter?: {
+  branch?: string;
+  batch?: string;
+  createdAt?: number;
+}): Promise<{ success: boolean; deletedCount: number; message: string }> {
+  const params = new URLSearchParams();
+  if (filter?.branch) params.set('branch', filter.branch);
+  if (filter?.batch) params.set('batch', filter.batch);
+  if (filter?.createdAt) params.set('createdAt', String(filter.createdAt));
+
+  const response = await apiClient.delete<{
+    success: boolean;
+    deletedCount: number;
+    message: string;
+  }>(`/profiles/batch-delete?${params.toString()}`);
+  return response.data;
+}
+
+export interface StudentNotificationItem {
+  id: string;
+  studentUserId: string;
+  driveId: string | null;
+  title: string;
+  message: string;
+  roundLabel: string | null;
+  read: boolean;
+  createdAt: string | number;
+}
+
+/**
+ * Fetches in-app shortlist & round notifications for the currently logged-in student.
+ */
+export async function listMyNotifications(): Promise<StudentNotificationItem[]> {
+  const response = await apiClient.get<StudentNotificationItem[]>('/profiles/me/notifications');
+  return response.data;
+}
+
+/**
+ * Marks a student notification as read.
+ */
+export async function markMyNotificationRead(notificationId: string): Promise<{ success: boolean }> {
+  const response = await apiClient.patch<{ success: boolean }>(
+    `/profiles/me/notifications/${notificationId}/read`
+  );
+  return response.data;
+}
+

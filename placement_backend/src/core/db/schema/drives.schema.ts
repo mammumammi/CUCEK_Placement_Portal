@@ -35,6 +35,7 @@ export const drives = sqliteTable(
     packageCategory: text('packageCategory').default('GENERAL'), // 'GENERAL' | 'DREAM' | 'INTERNSHIP'
     ctcLpa: real('ctcLpa'),
     youtubeUrl: text('youtubeUrl'),
+    registrationLink: text('registrationLink'),
     jdFileUrl: text('jdFileUrl'),
     jdFileUrls: text('jdFileUrls', { mode: 'json' })
       .$type<string[]>()
@@ -42,6 +43,7 @@ export const drives = sqliteTable(
     mockTestPdfUrls: text('mockTestPdfUrls', { mode: 'json' })
       .$type<string[]>()
       .default([]),
+    codingEnabled: integer('codingEnabled', { mode: 'boolean' }).default(true),
     companyFormat: text('companyFormat', { mode: 'json' })
       .$type<Array<{ companyHeader: string; sourceField: string; customValue?: string | null; customKey?: string | null }>>()
       .default([]),
@@ -133,3 +135,30 @@ export type NewApplication = InferInsertModel<typeof applications>;
 
 export type ApplicationRound = InferSelectModel<typeof applicationRounds>;
 export type NewApplicationRound = InferInsertModel<typeof applicationRounds>;
+
+/**
+ * In-app shortlist & round notifications delivered directly to students inside the portal.
+ */
+export const studentNotifications = sqliteTable(
+  'student_notifications',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    studentUserId: text('studentUserId')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    driveId: text('driveId').references(() => drives.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    message: text('message').notNull(),
+    roundLabel: text('roundLabel'),
+    read: integer('read', { mode: 'boolean' }).notNull().default(false),
+    createdAt: integer('createdAt', { mode: 'timestamp' })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (table) => [index('student_notifications_user_idx').on(table.studentUserId)]
+);
+
+export type StudentNotification = InferSelectModel<typeof studentNotifications>;
+export type NewStudentNotification = InferInsertModel<typeof studentNotifications>;

@@ -5,7 +5,7 @@
 
 import { eq, and, desc, sql } from 'drizzle-orm';
 import type { Db } from '@/core/db/client';
-import { drives, studentProfiles, applications, applicationRounds } from '@/core/db';
+import { drives, studentProfiles, applications, applicationRounds, studentNotifications, mockAssessments } from '@/core/db';
 import { PortalError } from '@/core/errors/portal-error';
 import type { FileStorage } from '@/server/services/storage.service';
 import type { CreateDriveInput, UpdateRoundInput, UpdateDriveDetailsInput } from './drives.schema';
@@ -202,9 +202,11 @@ export async function createDrive(
     packageCategory: input.packageCategory ?? 'GENERAL',
     ctcLpa: input.ctcLpa ?? null,
     youtubeUrl: input.youtubeUrl ?? null,
+    registrationLink: input.registrationLink?.trim() || null,
     jdFileUrl,
     jdFileUrls,
     mockTestPdfUrls,
+    codingEnabled: input.codingEnabled ?? true,
     companyFormat: input.companyFormat ?? [],
     deadline: new Date(input.deadline).toISOString(),
     eligibleBranches: input.eligibleBranches,
@@ -244,6 +246,34 @@ export async function listDrives(db: Db, actor: DriveActor) {
     .select()
     .from(drives)
     .orderBy(desc(drives.createdAt));
+
+  // Fetch all placed candidates grouped by driveId so Previous & Active drives display selected students
+  const allPlacedRows = await db
+    .select({
+      driveId: applications.driveId,
+      userId: studentProfiles.userId,
+      studentId: studentProfiles.studentId,
+      name: studentProfiles.name,
+      branch: studentProfiles.branch,
+    })
+    .from(applications)
+    .innerJoin(studentProfiles, eq(applications.studentUserId, studentProfiles.userId))
+    .where(eq(applications.placed, true));
+
+  const placedByDrive = new Map<
+    string,
+    { userId: string; studentId: string; name: string | null; branch: string | null }[]
+  >();
+  for (const row of allPlacedRows) {
+    const list = placedByDrive.get(row.driveId) || [];
+    list.push({
+      userId: row.userId,
+      studentId: row.studentId,
+      name: row.name,
+      branch: row.branch,
+    });
+    placedByDrive.set(row.driveId, list);
+  }
 
   let studentProfile: ProfileEligibilityInput | null = null;
   let appliedDriveIds = new Set<string>();
@@ -287,6 +317,7 @@ export async function listDrives(db: Db, actor: DriveActor) {
 
   return allDrives.map((d) => {
     const isOpen = new Date(d.deadline).getTime() > Date.now();
+    const placedCandidates = placedByDrive.get(d.id) || [];
 
     if (actor.role === 'STUDENT') {
       const eligibility = evaluateEligibility(studentProfile, {
@@ -299,6 +330,8 @@ export async function listDrives(db: Db, actor: DriveActor) {
       return {
         ...d,
         open: isOpen,
+        isPrevious: !isOpen,
+        placedCandidates,
         eligible: eligibility.eligible,
         reasons: eligibility.reasons,
         userApplied: appliedDriveIds.has(d.id),
@@ -308,6 +341,8 @@ export async function listDrives(db: Db, actor: DriveActor) {
     return {
       ...d,
       open: isOpen,
+      isPrevious: !isOpen,
+      placedCandidates,
     };
   });
 }
@@ -331,6 +366,16 @@ export async function getDriveById(
   }
 
   const isOpen = new Date(drive.deadline).getTime() > Date.now();
+  const drivePlacedCandidates = await db
+    .select({
+      userId: studentProfiles.userId,
+      studentId: studentProfiles.studentId,
+      name: studentProfiles.name,
+      branch: studentProfiles.branch,
+    })
+    .from(applications)
+    .innerJoin(studentProfiles, eq(applications.studentUserId, studentProfiles.userId))
+    .where(and(eq(applications.driveId, drive.id), eq(applications.placed, true)));
 
   if (actor.role === 'STUDENT') {
     const [profile] = await db
@@ -383,6 +428,8 @@ export async function getDriveById(
     return {
       ...drive,
       open: isOpen,
+      isPrevious: !isOpen,
+      placedCandidates: drivePlacedCandidates,
       eligible: eligibility.eligible,
       reasons: eligibility.reasons,
       userApplied: Boolean(userApp),
@@ -392,6 +439,8 @@ export async function getDriveById(
   return {
     ...drive,
     open: isOpen,
+    isPrevious: !isOpen,
+    placedCandidates: drivePlacedCandidates,
   };
 }
 
@@ -420,16 +469,66 @@ export async function updateDriveDetails(
   if (input.packageCategory !== undefined) updates.packageCategory = input.packageCategory;
   if (input.ctcLpa !== undefined) updates.ctcLpa = input.ctcLpa;
   if (input.youtubeUrl !== undefined) updates.youtubeUrl = input.youtubeUrl;
+  if (input.registrationLink !== undefined) updates.registrationLink = input.registrationLink?.trim() || null;
   if (input.deadline !== undefined) updates.deadline = new Date(input.deadline).toISOString();
   if (input.eligibleBranches !== undefined) updates.eligibleBranches = input.eligibleBranches;
   if (input.minCgpa !== undefined) updates.minCgpa = input.minCgpa;
   if (input.maxActiveBacklogs !== undefined) updates.maxActiveBacklogs = input.maxActiveBacklogs;
   if (input.allowBacklogs !== undefined) updates.allowBacklogs = input.allowBacklogs;
+  if (input.codingEnabled !== undefined) updates.codingEnabled = input.codingEnabled;
 
   await db.update(drives).set(updates).where(eq(drives.id, driveId));
 
   const [updated] = await db.select().from(drives).where(eq(drives.id, driveId)).limit(1);
   return updated;
+}
+
+/**
+ * Permanently removes / takes down a recruitment drive.
+ * Accessible only to MAIN_COORDINATOR.
+ * Automatically cleans up applications, rounds, notifications, and mock assessments.
+ */
+export async function deleteDrive(
+  db: Db,
+  actor: DriveActor,
+  driveId: string
+) {
+  if (actor.role !== 'MAIN_COORDINATOR') {
+    throw new PortalError('FORBIDDEN', 'Only the Main Coordinator (Super Admin) can delete recruitment drives', 403);
+  }
+
+  const [existing] = await db.select().from(drives).where(eq(drives.id, driveId)).limit(1);
+  if (!existing) {
+    throw new PortalError('NOT_FOUND', `Drive "${driveId}" not found`, 404);
+  }
+
+  // Clean up related records
+  try {
+    await db.delete(studentNotifications).where(eq(studentNotifications.driveId, driveId));
+  } catch {}
+
+  try {
+    await db.delete(mockAssessments).where(eq(mockAssessments.driveId, driveId));
+  } catch {}
+
+  try {
+    const apps = await db.select({ id: applications.id }).from(applications).where(eq(applications.driveId, driveId));
+    for (const a of apps) {
+      await db.delete(applicationRounds).where(eq(applicationRounds.applicationId, a.id));
+    }
+    await db.delete(applications).where(eq(applications.driveId, driveId));
+  } catch {}
+
+  // Delete the drive itself
+  await db.delete(drives).where(eq(drives.id, driveId));
+
+  return {
+    success: true,
+    deletedDriveId: driveId,
+    company: existing.company,
+    role: existing.role,
+    message: `Recruitment drive for ${existing.company} (${existing.role || 'Drive'}) has been deleted successfully.`,
+  };
 }
 
 /**

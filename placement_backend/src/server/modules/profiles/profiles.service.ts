@@ -3,7 +3,7 @@
  * @module server/modules/profiles/profiles.service
  */
 
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, or, sql } from 'drizzle-orm';
 import type { Db } from '@/core/db/client';
 import { users, studentProfiles, semesterResults, auditLogs, correctionRequests, applications, drives } from '@/core/db';
 import { PortalError } from '@/core/errors/portal-error';
@@ -995,11 +995,17 @@ export async function recordPlacedStudentManual(
     driveId?: string | null;
   }
 ) {
-  // 1. Find student
+  // 1. Find student (case-insensitive studentId or registrationNumber match)
+  const trimmedId = input.studentId.trim();
   const [student] = await db
     .select()
     .from(studentProfiles)
-    .where(eq(studentProfiles.studentId, input.studentId.trim()))
+    .where(
+      or(
+        sql`LOWER(${studentProfiles.studentId}) = LOWER(${trimmedId})`,
+        sql`LOWER(${studentProfiles.registrationNumber}) = LOWER(${trimmedId})`
+      )
+    )
     .limit(1);
 
   if (!student) {
@@ -1404,4 +1410,143 @@ export async function updateStudentPlacementStatus(
     message: `Updated placement status for ${student.name || student.studentId} to ${placementStatus}.`,
   };
 }
+
+/**
+ * Permanently deletes a student record and associated user account.
+ * Scoped so that BRANCH_COORDINATOR can only delete students in their own branch,
+ * while MAIN_COORDINATOR can delete any student.
+ */
+export async function deleteStudentRecord(
+  db: Db,
+  actor: ProfileActor,
+  studentIdOrUserId: string
+) {
+  if (actor.role !== 'MAIN_COORDINATOR' && actor.role !== 'BRANCH_COORDINATOR') {
+    throw new PortalError('FORBIDDEN', 'Only coordinators can delete student records', 403);
+  }
+
+  // Look up by studentId or userId
+  const [profile] = await db
+    .select()
+    .from(studentProfiles)
+    .where(or(eq(studentProfiles.studentId, studentIdOrUserId), eq(studentProfiles.userId, studentIdOrUserId)))
+    .limit(1);
+
+  if (!profile) {
+    throw new PortalError('NOT_FOUND', `Student "${studentIdOrUserId}" not found`, 404);
+  }
+
+  // Scoping check
+  if (actor.role === 'BRANCH_COORDINATOR' && actor.branch) {
+    if (profile.branch && profile.branch.toUpperCase() !== actor.branch.toUpperCase()) {
+      throw new PortalError('FORBIDDEN', `Access denied: Student belongs to branch ${profile.branch}`, 403);
+    }
+  }
+
+  const userId = profile.userId;
+
+  // Cleanup dependent rows if any
+  try {
+    await db.delete(applications).where(eq(applications.studentUserId, userId));
+  } catch {}
+
+  try {
+    await db.delete(correctionRequests).where(eq(correctionRequests.studentUserId, userId));
+  } catch {}
+
+  try {
+    await db.delete(auditLogs).where(eq(auditLogs.studentUserId, userId));
+  } catch {}
+
+  try {
+    await db.delete(semesterResults).where(eq(semesterResults.userId, userId));
+  } catch {}
+
+  // Delete profile
+  await db.delete(studentProfiles).where(eq(studentProfiles.userId, userId));
+
+  // Delete user account
+  await db.delete(users).where(eq(users.id, userId));
+
+  return {
+    success: true,
+    deletedStudentId: profile.studentId,
+    name: profile.name,
+    message: `Student ${profile.name || profile.studentId} (${profile.studentId}) successfully deleted.`,
+  };
+}
+
+/**
+ * Deletes all students uploaded in a specific batch / filter.
+ * Scoped: MAIN_COORDINATOR can delete any branch or batch;
+ * BRANCH_COORDINATOR can only delete within their own branch.
+ */
+export async function deleteBatchStudents(
+  db: Db,
+  actor: ProfileActor,
+  filter: { branch?: string; batch?: string; createdAt?: number }
+) {
+  if (actor.role !== 'MAIN_COORDINATOR' && actor.role !== 'BRANCH_COORDINATOR') {
+    throw new PortalError('FORBIDDEN', 'Only coordinators can delete batch student data', 403);
+  }
+
+  const targetBranch = actor.role === 'BRANCH_COORDINATOR' ? actor.branch : filter.branch;
+
+  // Find candidate profiles matching filter
+  const allProfiles = await db.select().from(studentProfiles);
+  const matched = allProfiles.filter((p) => {
+    if (targetBranch && p.branch && p.branch.toUpperCase() !== targetBranch.toUpperCase()) {
+      return false;
+    }
+    if (filter.batch && p.batch && p.batch !== filter.batch) {
+      return false;
+    }
+    if (filter.createdAt) {
+      // allow window of 60 seconds around timestamp
+      const pTime = p.createdAt instanceof Date ? Math.floor(p.createdAt.getTime() / 1000) : Number(p.createdAt);
+      if (Math.abs(pTime - filter.createdAt) > 60) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  if (matched.length === 0) {
+    return {
+      success: true,
+      deletedCount: 0,
+      message: 'No student records matched the given criteria.',
+    };
+  }
+
+  const userIds = matched.map((p) => p.userId);
+
+  for (const uid of userIds) {
+    try {
+      await db.delete(applications).where(eq(applications.studentUserId, uid));
+    } catch {}
+    try {
+      await db.delete(correctionRequests).where(eq(correctionRequests.studentUserId, uid));
+    } catch {}
+    try {
+      await db.delete(auditLogs).where(eq(auditLogs.studentUserId, uid));
+    } catch {}
+    try {
+      await db.delete(semesterResults).where(eq(semesterResults.userId, uid));
+    } catch {}
+    try {
+      await db.delete(studentProfiles).where(eq(studentProfiles.userId, uid));
+    } catch {}
+    try {
+      await db.delete(users).where(eq(users.id, uid));
+    } catch {}
+  }
+
+  return {
+    success: true,
+    deletedCount: matched.length,
+    message: `Successfully deleted ${matched.length} student record(s).`,
+  };
+}
+
 

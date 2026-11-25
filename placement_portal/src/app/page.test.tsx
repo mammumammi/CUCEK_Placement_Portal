@@ -42,12 +42,12 @@ describe('PublicPlacementHomePage Component', () => {
 
     render(<PublicPlacementHomePage />);
 
-    expect(screen.getByText(/Training & Placement Cell/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/CUCEK Placement Portal/i).length).toBeGreaterThan(0);
 
     await waitFor(() => {
       expect(screen.getByText(/Computer Science & Engineering/i)).toBeInTheDocument();
       expect(screen.getByText(/Electronics & Communication/i)).toBeInTheDocument();
-      expect(screen.getByText(/90% Placed/i)).toBeInTheDocument();
+      expect(screen.getByText(/90% rate/i)).toBeInTheDocument();
     });
   });
 });

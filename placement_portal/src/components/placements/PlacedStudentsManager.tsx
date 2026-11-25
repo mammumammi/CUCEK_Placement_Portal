@@ -33,14 +33,18 @@ import {
   DollarSign,
   HelpCircle,
   Sparkles,
+  User,
+  Check,
 } from 'lucide-react';
 import {
   listPlacedStudents,
+  listProfiles,
   recordPlacedStudentManual,
   previewPlacedStudentsExcel,
   commitPlacedStudentsBatch,
   unmarkPlacedStudent,
   type PlacedStudentRecord,
+  type StudentProfileData,
   type RecordPlacedStudentPayload,
   type BatchPreviewPlacedResponse,
 } from '@/services/profiles.service';
@@ -72,6 +76,11 @@ export function PlacedStudentsManager({
     type: 'success' | 'error';
     message: string;
   } | null>(null);
+
+  // Available students directory for quick name-based selection
+  const [availableStudents, setAvailableStudents] = useState<StudentProfileData[]>([]);
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [studentSearch, setStudentSearch] = useState('');
 
   // Manual Entry Modal
   const [manualModalOpen, setManualModalOpen] = useState(false);
@@ -119,15 +128,56 @@ export function PlacedStudentsManager({
       const data = await listPlacedStudents(branchParam);
       setPlacedList(data);
     } catch (err: any) {
-      setError(err?.response?.data?.message || err?.message || 'Failed to load placed students.');
+      setError(
+        err?.response?.data?.error?.message ||
+          err?.response?.data?.message ||
+          err?.message ||
+          'Failed to load placed students.'
+      );
     } finally {
       setLoading(false);
     }
   }, [userRole, userBranch, selectedBranchFilter]);
 
+  const fetchAvailableStudents = useCallback(async () => {
+    try {
+      setLoadingStudents(true);
+      const branchParam =
+        userRole === 'BRANCH_COORDINATOR' ? userBranch : undefined;
+      const profiles = await listProfiles(branchParam);
+      setAvailableStudents(profiles || []);
+    } catch {
+      // Non-fatal: manual Roll No input remains available as fallback
+    } finally {
+      setLoadingStudents(false);
+    }
+  }, [userRole, userBranch]);
+
   useEffect(() => {
     void fetchPlacedStudents();
-  }, [fetchPlacedStudents]);
+    void fetchAvailableStudents();
+  }, [fetchPlacedStudents, fetchAvailableStudents]);
+
+  const selectedStudentObj = useMemo(() => {
+    if (!manualForm.studentId.trim()) return null;
+    const target = manualForm.studentId.trim().toLowerCase();
+    return (
+      availableStudents.find((s) => s.studentId.toLowerCase() === target) || null
+    );
+  }, [availableStudents, manualForm.studentId]);
+
+  const filteredStudentOptions = useMemo(() => {
+    const q = studentSearch.trim().toLowerCase();
+    if (!q) return availableStudents.slice(0, 12);
+    return availableStudents
+      .filter(
+        (s) =>
+          (s.name && s.name.toLowerCase().includes(q)) ||
+          s.studentId.toLowerCase().includes(q) ||
+          (s.branch && s.branch.toLowerCase().includes(q))
+      )
+      .slice(0, 15);
+  }, [availableStudents, studentSearch]);
 
   // Auto-dismiss feedback after 4 seconds
   useEffect(() => {
@@ -241,11 +291,11 @@ export function PlacedStudentsManager({
     e.preventDefault();
     setManualError(null);
 
-    const sId = manualForm.studentId.trim().toUpperCase();
+    const sId = (selectedStudentObj?.studentId || manualForm.studentId).trim();
     const comp = manualForm.company.trim();
 
     if (!sId) {
-      setManualError('Student ID is required.');
+      setManualError('Please select a student or enter a valid Student ID / Roll No.');
       return;
     }
     if (!comp) {
@@ -275,6 +325,7 @@ export function PlacedStudentsManager({
       });
 
       setManualModalOpen(false);
+      setStudentSearch('');
       setManualForm({
         studentId: '',
         company: '',
@@ -287,7 +338,10 @@ export function PlacedStudentsManager({
       onStatsUpdated?.();
     } catch (err: any) {
       setManualError(
-        err?.response?.data?.message || err?.message || 'Failed to record student placement.'
+        err?.response?.data?.error?.message ||
+          err?.response?.data?.message ||
+          err?.message ||
+          'Failed to record student placement.'
       );
     } finally {
       setManualSubmitting(false);
@@ -730,9 +784,92 @@ export function PlacedStudentsManager({
             )}
 
             <form onSubmit={handleManualSubmit} className="space-y-4 text-xs font-sans">
+              {/* Student Picker by Name (auto-populates Roll No) */}
+              {availableStudents.length > 0 && (
+                <div className="space-y-2">
+                  <label className="block text-neutral-300 font-semibold">
+                    Select Student by Name
+                  </label>
+                  {selectedStudentObj ? (
+                    <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-neutral-900 border border-emerald-700/60">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-950 border border-emerald-700/60 flex items-center justify-center text-emerald-400 shrink-0">
+                          <User className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-bold text-white truncate">{selectedStudentObj.name}</div>
+                          <div className="text-[10px] font-mono text-neutral-400">
+                            {selectedStudentObj.studentId} &bull; {selectedStudentObj.branch} &bull; CGPA {selectedStudentObj.cgpa.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManualForm({ ...manualForm, studentId: '' });
+                          setStudentSearch('');
+                        }}
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold text-neutral-300 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 transition shrink-0"
+                      >
+                        Change
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="relative">
+                        <Search className="h-3.5 w-3.5 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder={loadingStudents ? 'Loading students...' : 'Search student name or roll no...'}
+                          value={studentSearch}
+                          onChange={(e) => setStudentSearch(e.target.value)}
+                          className="w-full bg-[#18181b] border border-neutral-700 focus:border-white focus:outline-none rounded-xl pl-8 pr-3.5 py-2 text-white text-xs placeholder:text-neutral-500"
+                        />
+                      </div>
+                      <div className="max-h-36 overflow-y-auto rounded-xl border border-neutral-800 bg-[#0d0d0f] divide-y divide-neutral-800/70">
+                        {filteredStudentOptions.length === 0 ? (
+                          <div className="px-3 py-2.5 text-[11px] text-neutral-500 text-center">
+                            No matching student found
+                          </div>
+                        ) : (
+                          filteredStudentOptions.map((s) => (
+                            <button
+                              key={s.studentId}
+                              type="button"
+                              onClick={() => {
+                                setManualForm({ ...manualForm, studentId: s.studentId });
+                                setStudentSearch(s.name || s.studentId);
+                              }}
+                              className="w-full px-3 py-2 text-left hover:bg-neutral-800/80 transition flex items-center justify-between gap-2"
+                            >
+                              <div className="min-w-0">
+                                <span className="font-semibold text-white block truncate">
+                                  {s.name || 'Unnamed Student'}
+                                </span>
+                                <span className="text-[10px] font-mono text-neutral-400">
+                                  {s.studentId} &bull; {s.branch}
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-neutral-900 border border-neutral-800 text-neutral-300 shrink-0">
+                                {s.cgpa.toFixed(2)} CGPA
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <label className="block text-neutral-300 font-semibold mb-1.5">
                   Student ID / Roll No <span className="text-red-400">*</span>
+                  {selectedStudentObj && (
+                    <span className="ml-2 text-[10px] text-emerald-400 font-normal">
+                      (Auto-filled from selected student)
+                    </span>
+                  )}
                 </label>
                 <input
                   type="text"
@@ -740,9 +877,14 @@ export function PlacedStudentsManager({
                   placeholder="e.g. 2022BCSE001"
                   value={manualForm.studentId}
                   onChange={(e) =>
-                    setManualForm({ ...manualForm, studentId: e.target.value.toUpperCase() })
+                    setManualForm({ ...manualForm, studentId: e.target.value })
                   }
-                  className="w-full bg-[#18181b] border border-neutral-700 focus:border-white focus:outline-none rounded-xl px-3.5 py-2.5 text-white font-mono text-xs uppercase"
+                  readOnly={Boolean(selectedStudentObj)}
+                  className={`w-full border focus:outline-none rounded-xl px-3.5 py-2.5 font-mono text-xs ${
+                    selectedStudentObj
+                      ? 'bg-neutral-900/70 border-neutral-800 text-neutral-300 cursor-not-allowed'
+                      : 'bg-[#18181b] border-neutral-700 focus:border-white text-white uppercase'
+                  }`}
                 />
               </div>
 

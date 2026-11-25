@@ -33,43 +33,43 @@ interface DepartmentPlacementPieChartProps {
   showLegendCards?: boolean;
 }
 
-// 2026 Monochrome silver / zinc spectrum palette for departments with high contrast against dark theme
+// Distinct vibrant color palette for each academic department with high contrast on dark theme
 const DEPT_COLORS: Record<string, { fill: string; border: string; label: string; textClass: string }> = {
   CSE: {
-    fill: '#ffffff', // Pure White (100% luminance)
-    border: '#ffffff',
+    fill: '#3b82f6', // Electric Blue
+    border: '#60a5fa',
     label: 'Computer Science & Engineering',
-    textClass: 'text-white',
+    textClass: 'text-blue-400',
   },
   ECE: {
-    fill: '#cbd5e1', // Cool Silver / Slate-300 (80% luminance)
-    border: '#e2e8f0',
+    fill: '#10b981', // Emerald Green
+    border: '#34d399',
     label: 'Electronics & Communication',
-    textClass: 'text-slate-200',
+    textClass: 'text-emerald-400',
   },
   EEE: {
-    fill: '#94a3b8', // Medium Silver / Slate-400 (65% luminance)
-    border: '#cbd5e1',
+    fill: '#f59e0b', // Amber Gold
+    border: '#fbbf24',
     label: 'Electrical & Electronics',
-    textClass: 'text-slate-300',
+    textClass: 'text-amber-400',
   },
   IT: {
-    fill: '#64748b', // Steel Slate-500 (50% luminance)
-    border: '#94a3b8',
+    fill: '#a855f7', // Vibrant Purple
+    border: '#c084fc',
     label: 'Information Technology',
-    textClass: 'text-slate-400',
+    textClass: 'text-purple-400',
   },
   CIVIL: {
-    fill: '#a1a1aa', // Neutral Zinc-400 (65% luminance)
-    border: '#d4d4d8',
+    fill: '#f43f5e', // Rose Coral
+    border: '#fb7185',
     label: 'Civil Engineering',
-    textClass: 'text-zinc-300',
+    textClass: 'text-rose-400',
   },
   MCA: {
-    fill: '#475569', // Deep Slate-600 (40% luminance with bright border)
-    border: '#94a3b8',
+    fill: '#06b6d4', // Cyan Teal
+    border: '#22d3ee',
     label: 'Master of Computer Applications',
-    textClass: 'text-slate-400',
+    textClass: 'text-cyan-400',
   },
 };
 
@@ -336,20 +336,25 @@ export function DepartmentPlacementPieChart({
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       <span
-                        className="w-3 h-3 rounded-md shrink-0 border"
+                        className="w-3.5 h-3.5 rounded-md shrink-0 border shadow-xs"
                         style={{
                           backgroundColor: slice.styling.fill,
                           borderColor: slice.styling.border,
                         }}
                       />
-                      <span className="text-xs font-bold text-white">
-                        {slice.branch}
-                      </span>
+                      <div className="min-w-0">
+                        <span className={`text-xs font-bold block ${slice.styling.textClass}`}>
+                          {slice.branch}
+                        </span>
+                        <span className="text-[10px] text-neutral-400 block truncate">
+                          {slice.styling.label}
+                        </span>
+                      </div>
                     </div>
 
-                    <span className="text-xs font-mono font-bold text-white">
+                    <span className="text-xs font-mono font-bold text-white shrink-0 px-2 py-0.5 rounded-md bg-black/40 border border-neutral-800">
                       {hasPlacements ? `${slice.sharePercentage}%` : '0%'}
                     </span>
                   </div>

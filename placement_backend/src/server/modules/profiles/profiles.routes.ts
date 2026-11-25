@@ -19,6 +19,10 @@ import {
   commitPlacedStudentsBatchSchema,
 } from './profiles.schema';
 import {
+  listStudentNotifications,
+  markNotificationRead,
+} from '../drives/shortlist.service';
+import {
   getMyProfile,
   completeStudentProfile,
   getProfileByStudentId,
@@ -36,6 +40,8 @@ import {
   commitPlacedStudentsBatch,
   unmarkPlacedStudent,
   updateStudentPlacementStatus,
+  deleteStudentRecord,
+  deleteBatchStudents,
 } from './profiles.service';
 
 const upload = multer({
@@ -111,6 +117,40 @@ export function createProfilesRouter(db: Db): Router {
           typeof req.query.branch === 'string' ? req.query.branch : undefined;
         const profiles = await listProfiles(db, req.user!, branchQuery);
         res.status(200).json(profiles);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // GET /api/profiles/me/notifications (STUDENT only: retrieve shortlist & round notifications)
+  router.get(
+    '/me/notifications',
+    requireAuth,
+    requireRoles('STUDENT'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const notifications = await listStudentNotifications(db, req.user!.id);
+        res.status(200).json(notifications);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // PATCH /api/profiles/me/notifications/:notificationId/read (STUDENT only)
+  router.patch(
+    '/me/notifications/:notificationId/read',
+    requireAuth,
+    requireRoles('STUDENT'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const result = await markNotificationRead(
+          db,
+          req.user!.id,
+          String(req.params.notificationId)
+        );
+        res.status(200).json(result);
       } catch (err) {
         next(err);
       }
@@ -386,6 +426,42 @@ export function createProfilesRouter(db: Db): Router {
           studentId,
           placementStatus
         );
+        res.status(200).json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // DELETE /api/profiles/batch-delete (Coordinators: delete batch of uploaded students)
+  router.delete(
+    '/batch-delete',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR', 'BRANCH_COORDINATOR'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const branch = typeof req.query.branch === 'string' ? req.query.branch : undefined;
+        const batch = typeof req.query.batch === 'string' ? req.query.batch : undefined;
+        const createdAt = req.query.createdAt ? Number(req.query.createdAt) : undefined;
+        const result = await deleteBatchStudents(db, req.user!, { branch, batch, createdAt });
+        res.status(200).json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // DELETE /api/profiles/:studentId (Coordinators: delete student record)
+  router.delete(
+    '/:studentId',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR', 'BRANCH_COORDINATOR'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const studentId = Array.isArray(req.params.studentId)
+          ? req.params.studentId[0]
+          : req.params.studentId;
+        const result = await deleteStudentRecord(db, req.user!, studentId);
         res.status(200).json(result);
       } catch (err) {
         next(err);

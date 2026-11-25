@@ -48,9 +48,11 @@ import {
   CheckCircle2,
   XCircle,
   Building2,
+  Trash2,
   Bell,
   PieChart as PieChartIcon,
 } from 'lucide-react';
+import { ShortlistModal } from '@/components/drives/ShortlistModal';
 import { useAuth } from '@/context/auth-context';
 import { RequireAuth } from '@/components/auth/require-auth';
 import {
@@ -68,6 +70,7 @@ import {
   getDepartmentStats,
   updateBatchCurrentSemester,
   updateStudentPlacementStatus,
+  deleteStudent,
   type StudentProfileData,
   type CorrectionRequestData,
   type DepartmentStats,
@@ -141,6 +144,8 @@ export default function CoordinatorPage() {
   const [drivesList, setDrivesList] = useState<DriveItem[]>([]);
   const [isLoadingDrives, setIsLoadingDrives] = useState<boolean>(false);
   const [driveBranchFilter, setDriveBranchFilter] = useState<'mine' | 'all'>('mine');
+  const [driveTimeFilter, setDriveTimeFilter] = useState<'all' | 'active' | 'previous'>('all');
+  const [shortlistDrive, setShortlistDrive] = useState<DriveItem | null>(null);
 
   // Roster Upload States
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -382,6 +387,25 @@ export default function CoordinatorPage() {
       alert(axiosErr.response?.data?.error?.message || axiosErr.response?.data?.message || 'Failed to update student placement status');
     } finally {
       setUpdatingStatusStudentId(null);
+    }
+  };
+
+  const handleDeleteStudent = async (studentId: string, studentName?: string | null) => {
+    const displayName = studentName || studentId;
+    if (!window.confirm(`Are you sure you want to permanently delete student ${displayName} (${studentId})? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      await deleteStudent(studentId);
+      setStudents((prev) => prev.filter((s) => s.studentId !== studentId));
+      if (selectedStudentForModal?.studentId === studentId) {
+        setSelectedStudentForModal(null);
+      }
+      alert(`Student ${displayName} deleted successfully.`);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string }; message?: string } }; message?: string };
+      alert(axiosErr.response?.data?.error?.message || axiosErr.response?.data?.message || 'Failed to delete student.');
     }
   };
 
@@ -786,8 +810,9 @@ export default function CoordinatorPage() {
 
   const primarySheet = analysisData?.sheets?.[0];
   const mappedFieldValues = new Set(Object.values(columnMapping));
+  const hasStudentIdentity = mappedFieldValues.has('studentId') || mappedFieldValues.has('registrationNumber');
   const missingRequiredFields = CANONICAL_FIELD_OPTIONS.filter(
-    (field) => field.required && !mappedFieldValues.has(field.key)
+    (field) => field.required && !(field.key === 'studentId' ? hasStudentIdentity : mappedFieldValues.has((field as { key: string }).key))
   );
 
   const pendingRequestsCount = correctionRequests.filter((r) => r.status === 'PENDING').length;
@@ -1229,8 +1254,8 @@ export default function CoordinatorPage() {
                         <button
                           type="button"
                           onClick={handlePreview}
-                          disabled={isPreviewing || isCommitting || missingRequiredFields.length > 0}
-                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition shadow-2xs"
+                          disabled={isPreviewing || isCommitting}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-neutral-800 disabled:text-neutral-500 disabled:cursor-not-allowed transition shadow-2xs"
                         >
                           {isPreviewing ? 'Validating...' : 'Generate Preview'}
                           <ArrowRight className="h-3.5 w-3.5" />
@@ -1239,18 +1264,18 @@ export default function CoordinatorPage() {
                     </div>
 
                     {missingRequiredFields.length > 0 ? (
-                      <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2.5 text-xs text-amber-800">
-                        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div className="mt-4 p-3.5 bg-amber-950/50 border border-amber-800/70 rounded-xl flex items-start gap-2.5 text-xs text-amber-200">
+                        <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
                         <div>
-                          <span className="font-semibold">Missing Student ID Column: </span>
-                          Please map the <strong>Student ID / Reg No</strong> column before generating the preview.
+                          <span className="font-semibold text-white">Auto-Generated Student ID Enabled: </span>
+                          No <strong>Student ID / Reg No</strong> column was mapped in this sheet (added at the bottom below). You can still generate the preview — temporary login credentials will be created so students can log in, enter their official Roll No &amp; details, and get verified by you!
                         </div>
                       </div>
                     ) : (
-                      <div className="mt-4 p-3 bg-neutral-900 border border-blue-200 rounded-lg flex items-start gap-2.5 text-xs text-neutral-200">
-                        <CheckCircle className="h-4 w-4 text-white shrink-0 mt-0.5" />
+                      <div className="mt-4 p-3.5 bg-neutral-900 border border-neutral-700 rounded-xl flex items-start gap-2.5 text-xs text-neutral-200">
+                        <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
                         <div>
-                          <span className="font-semibold">Flexible Registration: </span>
+                          <span className="font-semibold text-white">Flexible Registration: </span>
                           Missing fields (Name, Email, Phone, Batch, DOB) can be left unmapped—students will be prompted to fill them in automatically on their first login!
                         </div>
                       </div>
@@ -1282,7 +1307,7 @@ export default function CoordinatorPage() {
                                   <select
                                     value={currentMappedVal}
                                     onChange={(e) => handleMappingChange(header, e.target.value)}
-                                    className="w-full max-w-xs border border-neutral-700 rounded-md px-2.5 py-1.5 text-xs font-medium text-white bg-[#18181b] text-white focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                                    className="w-full max-w-xs border border-neutral-700 rounded-md px-2.5 py-1.5 text-xs font-medium text-white bg-[#18181b] focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                                   >
                                     <option value="">-- Ignore Column --</option>
                                     <optgroup label="Required Canonical Fields">
@@ -1303,19 +1328,19 @@ export default function CoordinatorPage() {
                                 </td>
                                 <td className="px-4 py-3">
                                   {match?.source === 'exact' ? (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950/70 text-emerald-300 border border-emerald-800/70">
                                       Exact Match
                                     </span>
                                   ) : match?.source === 'pattern' ? (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-neutral-800 text-neutral-200">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-neutral-800 text-neutral-200 border border-neutral-700">
                                       Pattern Match
                                     </span>
                                   ) : match?.source === 'ai' ? (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-100 text-purple-800">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-purple-950/70 text-purple-300 border border-purple-800/70">
                                       AI Suggested
                                     </span>
                                   ) : (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-neutral-400">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-neutral-800 text-neutral-300 border border-neutral-700">
                                       Unmatched
                                     </span>
                                   )}
@@ -1326,6 +1351,24 @@ export default function CoordinatorPage() {
                               </tr>
                             );
                           })}
+                          {missingRequiredFields.map((missingField) => (
+                            <tr key={`missing-${missingField.key}`} className="bg-amber-950/20 border-t border-amber-800/40">
+                              <td className="px-4 py-3 font-mono text-amber-300 italic">
+                                (Not in Excel Sheet)
+                              </td>
+                              <td className="px-4 py-3 font-semibold text-white">
+                                {missingField.label} *
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-950/70 text-amber-300 border border-amber-800/70">
+                                  Auto-Generated on Import
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-neutral-400 font-mono text-[11px]">
+                                Student enters on login
+                              </td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
@@ -1517,14 +1560,14 @@ export default function CoordinatorPage() {
               )}
 
               {/* Request Type & Status Filter Tabs */}
-              <div className="mb-5 flex flex-wrap items-center gap-2 border-b border-neutral-800 pb-3">
+              <div className="mb-5 flex flex-wrap items-center gap-2 border-b border-neutral-800 pb-3.5">
                 <button
                   type="button"
                   onClick={() => setRequestFilter('all')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap ${
                     requestFilter === 'all'
-                      ? 'bg-blue-600 text-white shadow-2xs'
-                      : 'bg-white text-neutral-300 border border-neutral-800 hover:bg-neutral-900/60'
+                      ? 'bg-white text-black font-bold shadow-2xs'
+                      : 'bg-neutral-900 text-neutral-300 border border-neutral-800 hover:bg-neutral-800 hover:text-white'
                   }`}
                 >
                   All Requests ({correctionRequests.length})
@@ -1532,10 +1575,10 @@ export default function CoordinatorPage() {
                 <button
                   type="button"
                   onClick={() => setRequestFilter('pending')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap ${
                     requestFilter === 'pending'
-                      ? 'bg-amber-600 text-white shadow-2xs'
-                      : 'bg-white text-neutral-300 border border-neutral-800 hover:bg-neutral-900/60'
+                      ? 'bg-amber-400 text-black font-bold shadow-2xs'
+                      : 'bg-neutral-900 text-neutral-300 border border-neutral-800 hover:bg-neutral-800 hover:text-white'
                   }`}
                 >
                   Pending Review ({pendingRequestsCount})
@@ -1543,10 +1586,10 @@ export default function CoordinatorPage() {
                 <button
                   type="button"
                   onClick={() => setRequestFilter('drives')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap ${
                     requestFilter === 'drives'
-                      ? 'bg-purple-600 text-white shadow-2xs'
-                      : 'bg-white text-neutral-300 border border-neutral-800 hover:bg-neutral-900/60'
+                      ? 'bg-white text-black font-bold shadow-2xs'
+                      : 'bg-neutral-900 text-neutral-300 border border-neutral-800 hover:bg-neutral-800 hover:text-white'
                   }`}
                 >
                   Drive Applications ({
@@ -1558,10 +1601,10 @@ export default function CoordinatorPage() {
                 <button
                   type="button"
                   onClick={() => setRequestFilter('corrections')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition whitespace-nowrap ${
                     requestFilter === 'corrections'
-                      ? 'bg-indigo-600 text-white shadow-2xs'
-                      : 'bg-white text-neutral-300 border border-neutral-800 hover:bg-neutral-900/60'
+                      ? 'bg-white text-black font-bold shadow-2xs'
+                      : 'bg-neutral-900 text-neutral-300 border border-neutral-800 hover:bg-neutral-800 hover:text-white'
                   }`}
                 >
                   Data Corrections ({
@@ -1575,16 +1618,16 @@ export default function CoordinatorPage() {
               {requestActionMsg && (
                 <div
                   role="status"
-                  className={`mb-6 rounded-lg p-4 border flex items-start gap-3 ${
+                  className={`mb-6 rounded-xl p-4 border flex items-start gap-3 ${
                     requestActionMsg.type === 'success'
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                      : 'bg-red-50 border-red-200 text-red-800'
+                      ? 'bg-emerald-950/60 border-emerald-800/70 text-emerald-200'
+                      : 'bg-red-950/60 border-red-800/70 text-red-200'
                   }`}
                 >
                   {requestActionMsg.type === 'success' ? (
-                    <CheckCircle className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+                    <CheckCircle className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
                   ) : (
-                    <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+                    <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
                   )}
                   <div className="text-sm font-medium">{requestActionMsg.text}</div>
                 </div>
@@ -1597,7 +1640,7 @@ export default function CoordinatorPage() {
                 </div>
               ) : correctionRequests.length === 0 ? (
                 <div className="bg-[#101012] rounded-3xl border border-neutral-800 text-white shadow-xs p-12 text-center">
-                  <FileCheck2 className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+                  <FileCheck2 className="h-10 w-10 text-neutral-500 mx-auto mb-3" />
                   <h3 className="text-sm font-bold text-white">No Applied Requests or Corrections</h3>
                   <p className="mt-1 text-xs text-neutral-400">
                     There are no pending or past drive applications or data correction requests from students in {user?.branch}.
@@ -1623,20 +1666,20 @@ export default function CoordinatorPage() {
                       return (
                         <div
                           key={req.id}
-                          className={`bg-white rounded-xl shadow-xs border overflow-hidden transition ${
-                            isPending ? 'border-amber-200 ring-1 ring-amber-100' : 'border-neutral-800'
+                          className={`bg-[#101012] rounded-2xl shadow-xs border overflow-hidden transition ${
+                            isPending ? 'border-amber-700/70 ring-1 ring-amber-500/20' : 'border-neutral-800'
                           }`}
                         >
-                          <div className="p-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="p-5 border-b border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                             <div className="flex flex-wrap items-center gap-2.5">
                               {/* Request Type Badge */}
                               {isDrive ? (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-white text-black border border-white whitespace-nowrap">
                                   <Briefcase className="h-3.5 w-3.5" />
                                   Drive Application
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-neutral-800 text-neutral-200 border border-blue-200">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-neutral-800 text-neutral-200 border border-neutral-700 whitespace-nowrap">
                                   <FileText className="h-3.5 w-3.5" />
                                   Profile Correction
                                 </span>
@@ -1653,28 +1696,28 @@ export default function CoordinatorPage() {
                               <span className="text-sm font-semibold text-neutral-200">
                                 {req.studentName || 'Student'}
                               </span>
-                              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-neutral-300 font-medium">
+                              <span className="text-xs px-2.5 py-0.5 rounded-full bg-neutral-900 border border-neutral-700 text-neutral-300 font-medium">
                                 {req.branch}
                               </span>
                             </div>
 
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2.5">
                               {isPending && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-amber-950/70 text-amber-300 border border-amber-800/70 whitespace-nowrap">
                                   <Clock className="h-3 w-3" /> Pending Review
                                 </span>
                               )}
                               {isApproved && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-950/70 text-emerald-300 border border-emerald-800/70 whitespace-nowrap">
                                   <Check className="h-3 w-3" /> Approved &amp; Verified
                                 </span>
                               )}
                               {isRejected && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-red-950/70 text-red-300 border border-red-800/70 whitespace-nowrap">
                                   <X className="h-3 w-3" /> Rejected
                                 </span>
                               )}
-                              <span className="text-xs text-gray-400">
+                              <span className="text-xs text-neutral-400 font-mono">
                                 {new Date(req.createdAt).toLocaleDateString()}
                               </span>
                             </div>
@@ -1683,17 +1726,17 @@ export default function CoordinatorPage() {
                           <div className="p-5 space-y-4">
                             {/* Card Content: Drive Application Specific */}
                             {isDrive ? (
-                              <div className="p-4 bg-purple-50/60 rounded-xl border border-purple-100 space-y-3">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <div className="p-4 bg-neutral-900/70 rounded-xl border border-neutral-800 space-y-3">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                   <div>
-                                    <h4 className="text-base font-bold text-purple-950 flex items-center gap-2">
-                                      <Building2 className="h-4 w-4 text-purple-700" />
+                                    <h4 className="text-base font-bold text-white flex items-center gap-2">
+                                      <Building2 className="h-4 w-4 text-neutral-300" />
                                       {String(changes.company || 'Company')}
                                     </h4>
-                                    <p className="text-xs text-purple-800 mt-0.5">
-                                      Role: <strong>{String(changes.role || 'Software Engineer')}</strong> &bull; Tier:{' '}
-                                      <strong>{String(changes.packageCategory || 'General')}</strong> &bull; Package:{' '}
-                                      <strong className="font-mono text-emerald-700 font-bold">
+                                    <p className="text-xs text-neutral-300 mt-1">
+                                      Role: <strong className="text-white">{String(changes.role || 'Software Engineer')}</strong> &bull; Tier:{' '}
+                                      <strong className="text-white">{String(changes.packageCategory || 'General')}</strong> &bull; Package:{' '}
+                                      <strong className="font-mono text-emerald-400 font-bold">
                                         {changes.ctcLpa ? `${changes.ctcLpa} LPA` : 'Standard'}
                                       </strong>
                                     </p>
@@ -1703,17 +1746,17 @@ export default function CoordinatorPage() {
                                     <Link
                                       href={`/drives/${String(changes.driveId)}`}
                                       target="_blank"
-                                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-purple-800 bg-[#18181b] text-white hover:bg-purple-100 border border-purple-200 transition shadow-2xs self-start sm:self-auto"
+                                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 transition shadow-2xs self-start sm:self-auto whitespace-nowrap"
                                     >
-                                      <FileSpreadsheet className="h-3.5 w-3.5 text-purple-600" />
+                                      <FileSpreadsheet className="h-3.5 w-3.5" />
                                       Open Application Sheet
-                                      <ExternalLink className="h-3 w-3 opacity-60 ml-0.5" />
+                                      <ExternalLink className="h-3 w-3 opacity-70 ml-0.5" />
                                     </Link>
                                   )}
                                 </div>
 
-                                <div className="text-xs text-purple-900 bg-[#18181b] text-white p-3 rounded-lg border border-purple-200/80">
-                                  <span className="font-bold block text-purple-950 mb-0.5">Application Summary:</span>
+                                <div className="text-xs text-neutral-300 bg-[#09090b] p-3.5 rounded-xl border border-neutral-800">
+                                  <span className="font-bold block text-white mb-1">Application Summary:</span>
                                   {req.reason}
                                 </div>
                               </div>
@@ -1738,7 +1781,7 @@ export default function CoordinatorPage() {
                                     </div>
                                   ))}
                                 </div>
-                                <div className="bg-neutral-900/60/70 p-3 rounded-lg border border-neutral-800 text-xs mt-3">
+                                <div className="bg-neutral-900/60 p-3 rounded-lg border border-neutral-800 text-xs mt-3">
                                   <span className="font-semibold text-neutral-300 block mb-0.5">
                                     Student Reason:
                                   </span>
@@ -1748,14 +1791,14 @@ export default function CoordinatorPage() {
                             )}
 
                             {req.reviewerRemarks && (
-                              <div className="text-xs text-neutral-400 bg-neutral-900/60 p-2.5 rounded-lg border border-blue-100">
-                                <span className="font-semibold text-blue-900">Coordinator Remarks: </span>
+                              <div className="text-xs text-neutral-300 bg-neutral-900/80 p-3 rounded-xl border border-neutral-800">
+                                <span className="font-semibold text-white">Coordinator Remarks: </span>
                                 {req.reviewerRemarks}
                               </div>
                             )}
 
                             {isPending && (
-                              <div className="pt-3 border-t border-gray-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                              <div className="pt-3 border-t border-neutral-800 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                                 <input
                                   type="text"
                                   placeholder={
@@ -1767,7 +1810,7 @@ export default function CoordinatorPage() {
                                   onChange={(e) =>
                                     setReviewRemarks((prev) => ({ ...prev, [req.id]: e.target.value }))
                                   }
-                                  className="flex-1 text-xs border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black font-medium focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                                  className="flex-1 text-xs border border-neutral-700 rounded-xl px-3.5 py-2.5 bg-[#18181b] text-white placeholder:text-neutral-500 font-medium focus:outline-hidden focus:border-white"
                                 />
 
                                 <div className="flex items-center gap-2">
@@ -1775,7 +1818,7 @@ export default function CoordinatorPage() {
                                     type="button"
                                     onClick={() => handleReview(req.id, 'APPROVE')}
                                     disabled={reviewingId === req.id}
-                                    className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 transition shadow-2xs"
+                                    className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 disabled:bg-neutral-800 disabled:text-neutral-500 transition shadow-2xs whitespace-nowrap"
                                   >
                                     <Check className="h-3.5 w-3.5" />
                                     {isDrive ? 'Verify & Approve Application' : 'Approve & Update Record'}
@@ -1784,7 +1827,7 @@ export default function CoordinatorPage() {
                                     type="button"
                                     onClick={() => handleReview(req.id, 'REJECT')}
                                     disabled={reviewingId === req.id}
-                                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 disabled:bg-gray-100 transition shadow-2xs"
+                                    className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold text-red-300 bg-red-950/60 hover:bg-red-900/60 border border-red-800/70 disabled:bg-neutral-800 disabled:text-neutral-500 transition shadow-2xs whitespace-nowrap"
                                   >
                                     <X className="h-3.5 w-3.5" />
                                     {isDrive ? 'Reject Application' : 'Reject'}
@@ -2121,14 +2164,24 @@ export default function CoordinatorPage() {
                               )}
                             </td>
                             <td className="px-3.5 py-3 text-center whitespace-nowrap">
-                              <button
-                                type="button"
-                                onClick={() => setSelectedStudentForModal(s)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-neutral-300 bg-gray-100 hover:bg-gray-200 border border-neutral-700 transition"
-                              >
-                                <Eye className="h-3 w-3 text-neutral-400" />
-                                Full Record
-                              </button>
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedStudentForModal(s)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-neutral-300 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition"
+                                >
+                                  <Eye className="h-3 w-3 text-neutral-400" />
+                                  Full Record
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteStudent(s.studentId, s.name)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-red-400 bg-red-950/40 hover:bg-red-900/60 border border-red-800/60 transition"
+                                  title="Delete student record"
+                                >
+                                  <Trash2 className="h-3 w-3 text-red-400" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -2258,14 +2311,14 @@ export default function CoordinatorPage() {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center bg-[#18181b] text-white border border-neutral-700 rounded-lg p-0.5 text-xs font-medium">
+                <div className="flex flex-wrap items-center gap-3 shrink-0">
+                  <div className="flex items-center bg-[#18181b] text-white border border-neutral-700 rounded-xl p-1 text-xs font-medium">
                     <button
                       type="button"
                       onClick={() => setDriveBranchFilter('mine')}
-                      className={`px-3 py-1.5 rounded-md transition ${
+                      className={`px-3.5 py-1.5 rounded-lg transition whitespace-nowrap shrink-0 ${
                         driveBranchFilter === 'mine'
-                          ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                          ? 'bg-white text-black font-bold shadow-2xs'
                           : 'text-neutral-400 hover:text-white'
                       }`}
                     >
@@ -2274,9 +2327,9 @@ export default function CoordinatorPage() {
                     <button
                       type="button"
                       onClick={() => setDriveBranchFilter('all')}
-                      className={`px-3 py-1.5 rounded-md transition ${
+                      className={`px-3.5 py-1.5 rounded-lg transition whitespace-nowrap shrink-0 ${
                         driveBranchFilter === 'all'
-                          ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                          ? 'bg-white text-black font-bold shadow-2xs'
                           : 'text-neutral-400 hover:text-white'
                       }`}
                     >
@@ -2284,11 +2337,29 @@ export default function CoordinatorPage() {
                     </button>
                   </div>
 
+                  {/* Active vs Previous Drives Filter */}
+                  <div className="flex items-center bg-[#18181b] text-white border border-neutral-700 rounded-xl p-1 text-xs font-medium">
+                    {(['all', 'active', 'previous'] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setDriveTimeFilter(t)}
+                        className={`px-3 py-1.5 rounded-lg transition whitespace-nowrap shrink-0 capitalize ${
+                          driveTimeFilter === t
+                            ? 'bg-white text-black font-bold shadow-2xs'
+                            : 'text-neutral-400 hover:text-white'
+                        }`}
+                      >
+                        {t === 'previous' ? 'Previous Drives' : t}
+                      </button>
+                    ))}
+                  </div>
+
                   <button
                     type="button"
                     onClick={fetchDrives}
                     disabled={isLoadingDrives}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-neutral-700 rounded-md text-xs font-medium text-neutral-300 bg-[#18181b] text-white hover:bg-neutral-900/60 transition shadow-2xs"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-neutral-700 rounded-xl text-xs font-medium text-neutral-200 bg-[#18181b] hover:bg-neutral-800 transition shadow-2xs whitespace-nowrap shrink-0"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 text-neutral-400 ${isLoadingDrives ? 'animate-spin' : ''}`} />
                     Refresh
@@ -2313,9 +2384,12 @@ export default function CoordinatorPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {drivesList
                     .filter((d) => {
-                      if (driveBranchFilter === 'mine') {
-                        return d.eligibleBranches.includes(user?.branch || 'CSE');
+                      if (driveBranchFilter === 'mine' && !d.eligibleBranches.includes(user?.branch || 'CSE')) {
+                        return false;
                       }
+                      const isPrev = Boolean(d.isPrevious || !d.open);
+                      if (driveTimeFilter === 'active' && isPrev) return false;
+                      if (driveTimeFilter === 'previous' && !isPrev) return false;
                       return true;
                     })
                     .map((d) => {
@@ -2342,31 +2416,31 @@ export default function CoordinatorPage() {
                               </span>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 text-xs bg-neutral-900/60 p-3 rounded-xl border border-gray-100 mb-3">
+                            <div className="grid grid-cols-2 gap-2 text-xs bg-neutral-900/60 p-3 rounded-xl border border-neutral-800 mb-3">
                               <div>
-                                <span className="text-gray-400 block text-[10px]">Package CTC:</span>
-                                <span className="font-bold text-emerald-700 font-mono text-sm">
+                                <span className="text-neutral-400 block text-[10px]">Package CTC:</span>
+                                <span className="font-bold text-emerald-400 font-mono text-sm">
                                   {d.ctcLpa !== null ? `${d.ctcLpa} LPA` : 'As per policy'}
                                 </span>
                               </div>
                               <div>
-                                <span className="text-gray-400 block text-[10px]">Min CGPA:</span>
+                                <span className="text-neutral-400 block text-[10px]">Min CGPA:</span>
                                 <span className="font-bold text-white">
                                   {d.minCgpa > 0 ? d.minCgpa : 'None'}
                                 </span>
                               </div>
                               <div>
-                                <span className="text-gray-400 block text-[10px]">Backlogs / Supply:</span>
+                                <span className="text-neutral-400 block text-[10px]">Backlogs / Supply:</span>
                                 <span
                                   className={`font-semibold ${
-                                    d.allowBacklogs ? 'text-amber-700' : 'text-emerald-700'
+                                    d.allowBacklogs ? 'text-amber-400' : 'text-emerald-400'
                                   }`}
                                 >
                                   {d.allowBacklogs ? `Allowed (≤ ${d.maxActiveBacklogs})` : 'Zero Only'}
                                 </span>
                               </div>
                               <div>
-                                <span className="text-gray-400 block text-[10px]">Total Rounds:</span>
+                                <span className="text-neutral-400 block text-[10px]">Total Rounds:</span>
                                 <span className="font-semibold text-white">{d.totalRounds}</span>
                               </div>
                             </div>
@@ -2374,14 +2448,14 @@ export default function CoordinatorPage() {
                             <div className="space-y-1.5 text-xs text-neutral-400 mb-3">
                               <div className="flex items-center gap-1.5">
                                 <span className="font-medium text-neutral-400">Eligible:</span>
-                                <div className="flex flex-wrap gap-1">
+                                <div className="flex flex-wrap gap-1.5">
                                   {d.eligibleBranches.map((b) => (
                                     <span
                                       key={b}
-                                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold whitespace-nowrap ${
                                         b === user?.branch
-                                          ? 'bg-blue-600 text-white'
-                                          : 'bg-gray-100 text-neutral-300'
+                                          ? 'bg-white text-black'
+                                          : 'bg-neutral-800 text-neutral-300 border border-neutral-700'
                                       }`}
                                     >
                                       {b}
@@ -2389,22 +2463,42 @@ export default function CoordinatorPage() {
                                   ))}
                                 </div>
                               </div>
-                              <div className="text-[11px] text-gray-400">
+                              <div className="text-[11px] text-neutral-400">
                                 Deadline: {new Date(d.deadline).toLocaleString()}
                               </div>
                             </div>
 
+                            {/* Selected / Placed Candidates */}
+                            {d.placedCandidates && d.placedCandidates.length > 0 && (
+                              <div className="mb-4 p-2.5 bg-emerald-950/30 border border-emerald-800/60 rounded-xl space-y-1.5">
+                                <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+                                  <Award className="h-3.5 w-3.5 text-emerald-400" />
+                                  <span>Selected / Placed ({d.placedCandidates.length})</span>
+                                </span>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {d.placedCandidates.map((pc) => (
+                                    <span
+                                      key={pc.userId}
+                                      className="px-2 py-0.5 rounded-full bg-black text-white border border-emerald-700/60 text-[10px] font-semibold whitespace-nowrap"
+                                    >
+                                      {pc.name || pc.studentId}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
                             {/* Batch Info Fields Pill */}
                             {extraCount > 0 ? (
-                              <div className="mb-4 p-2 bg-neutral-900/70 border border-blue-100 rounded-lg">
-                                <span className="text-[10px] font-bold text-blue-900 uppercase tracking-wider block mb-1">
+                              <div className="mb-4 p-2.5 bg-neutral-900/70 border border-neutral-800 rounded-xl">
+                                <span className="text-[10px] font-bold text-neutral-300 uppercase tracking-wider block mb-1.5">
                                   {extraCount} Batch Info Field{extraCount === 1 ? '' : 's'} Active:
                                 </span>
-                                <div className="flex flex-wrap gap-1">
+                                <div className="flex flex-wrap gap-1.5">
                                   {d.extraFields?.map((f) => (
                                     <span
                                       key={f.key}
-                                      className="px-2 py-0.5 rounded-full bg-[#18181b] text-white text-white border border-blue-200 text-[10px] font-semibold"
+                                      className="px-2.5 py-0.5 rounded-full bg-black text-white border border-neutral-700 text-[10px] font-semibold whitespace-nowrap"
                                     >
                                       {f.label}
                                     </span>
@@ -2412,17 +2506,17 @@ export default function CoordinatorPage() {
                                 </div>
                               </div>
                             ) : (
-                              <div className="mb-4 text-[11px] text-gray-400 italic">
+                              <div className="mb-4 text-[11px] text-neutral-500 italic">
                                 No custom batch questions added yet.
                               </div>
                             )}
                           </div>
 
                           {/* Action Buttons */}
-                          <div className="pt-3 border-t border-gray-100 space-y-2">
+                          <div className="pt-3 border-t border-neutral-800 space-y-2">
                             <Link
                               href={`/drives/${d.id}`}
-                              className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition shadow-2xs"
+                              className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold text-black bg-white hover:bg-neutral-200 transition shadow-2xs"
                             >
                               <FileSpreadsheet className="h-4 w-4" />
                               Open Application Sheet
@@ -2436,9 +2530,9 @@ export default function CoordinatorPage() {
                                   setBatchFieldModalDriveId(d.id);
                                   setBatchFieldMsg(null);
                                 }}
-                                className="inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] font-semibold text-neutral-300 bg-gray-100 hover:bg-gray-200 border border-neutral-700 transition"
+                                className="inline-flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-[11px] font-semibold text-neutral-200 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition whitespace-nowrap"
                               >
-                                <Plus className="h-3 w-3 text-white" />
+                                <Plus className="h-3.5 w-3.5 text-white" />
                                 Add Batch Field
                               </button>
 
@@ -2446,21 +2540,30 @@ export default function CoordinatorPage() {
                                 href={`http://localhost:4000/api/drives/${d.id}/export`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] font-semibold text-neutral-300 bg-[#18181b] text-white hover:bg-neutral-900/60 border border-neutral-700 transition"
+                                className="inline-flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl text-[11px] font-semibold text-neutral-200 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition whitespace-nowrap"
                                 title="Download standard report with verified candidates and branch summary"
                               >
                                 <Download className="h-3 w-3 text-neutral-400" />
                                 Export Excel
                               </a>
 
+                              <button
+                                type="button"
+                                onClick={() => setShortlistDrive(d)}
+                                className="col-span-2 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-[11px] font-bold text-white bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition whitespace-nowrap"
+                              >
+                                <Bell className="h-3.5 w-3.5 text-amber-400" />
+                                Shortlist PDF &amp; Notify Students
+                              </button>
+
                               <a
                                 href={`http://localhost:4000/api/drives/${d.id}/export?format=company`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition"
+                                className="col-span-2 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-[11px] font-bold text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-800/70 transition whitespace-nowrap"
                                 title="Download candidates formatted exactly according to the company's required Excel schema"
                               >
-                                <FileSpreadsheet className="h-3 w-3 text-emerald-600" />
+                                <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
                                 Company Format (.xlsx)
                               </a>
                             </div>
@@ -2622,6 +2725,17 @@ export default function CoordinatorPage() {
               </form>
             </div>
           </div>
+        )}
+
+        {/* SHORTLIST PDF & NOTIFICATION MODAL */}
+        {shortlistDrive && (
+          <ShortlistModal
+            drive={shortlistDrive}
+            onClose={() => setShortlistDrive(null)}
+            onCompleted={() => {
+              void fetchDrives();
+            }}
+          />
         )}
 
         {/* FULL STUDENT PROFILE MODAL */}

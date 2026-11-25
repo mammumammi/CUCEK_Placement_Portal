@@ -10,7 +10,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import {
   Building2,
   Calendar,
@@ -27,11 +27,12 @@ import {
   Sparkles,
   Video,
   ExternalLink,
+  Trash2,
 } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { RequireAuth } from '@/components/auth/require-auth';
 import { DrivesSpreadsheet } from '@/components/spreadsheet/DrivesSpreadsheet';
-import { getDriveById, getYouTubeEmbedUrl, type DriveItem } from '@/services/drives.service';
+import { getDriveById, getYouTubeEmbedUrl, deleteDrive, type DriveItem } from '@/services/drives.service';
 import { applyToDrive } from '@/services/spreadsheet.service';
 
 interface DrivePageProps {
@@ -69,6 +70,7 @@ function DriveApplicationContent({ params }: DrivePageProps) {
   const driveId = routeDriveId || propDriveId || '';
 
   const { user } = useAuth();
+  const router = useRouter();
 
   const [drive, setDrive] = useState<DriveItem | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -76,6 +78,27 @@ function DriveApplicationContent({ params }: DrivePageProps) {
   const [applyLoading, setApplyLoading] = useState<boolean>(false);
   const [applySuccess, setApplySuccess] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const [isDeletingDrive, setIsDeletingDrive] = useState<boolean>(false);
+
+  const handleDeleteCurrentDrive = async () => {
+    if (!drive) return;
+    const title = `${drive.company}${drive.role ? ` (${drive.role})` : ''}`;
+    if (!window.confirm(`Are you sure you want to take down and permanently delete "${title}"? This cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setIsDeletingDrive(true);
+      await deleteDrive(drive.id);
+      alert(`Drive for ${title} has been deleted.`);
+      router.push('/admin');
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string }; message?: string } }; message?: string };
+      alert(axiosErr.response?.data?.error?.message || axiosErr.response?.data?.message || 'Failed to delete drive.');
+    } finally {
+      setIsDeletingDrive(false);
+    }
+  };
 
   const fetchDrive = useCallback(async () => {
     if (!driveId) return;
@@ -234,7 +257,7 @@ function DriveApplicationContent({ params }: DrivePageProps) {
                       <span className="text-2xl font-black text-white">{drive.company}</span>
                       {getCategoryBadge(drive.packageCategory)}
                       {!drive.open && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-neutral-400 border border-neutral-700">
+                        <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-neutral-900 text-neutral-300 border border-neutral-700 whitespace-nowrap shrink-0">
                           Closed
                         </span>
                       )}
@@ -247,8 +270,8 @@ function DriveApplicationContent({ params }: DrivePageProps) {
                         </div>
                       )}
                       {drive.ctcLpa !== null && (
-                        <div className="flex items-center gap-1.5 font-semibold text-emerald-700">
-                          <Award className="h-4 w-4 text-emerald-600" />
+                        <div className="flex items-center gap-1.5 font-semibold text-emerald-400">
+                          <Award className="h-4 w-4 text-emerald-400" />
                           <span>{drive.ctcLpa} LPA Package</span>
                         </div>
                       )}
@@ -280,11 +303,36 @@ function DriveApplicationContent({ params }: DrivePageProps) {
                       </a>
                     )}
 
+                    {drive.registrationLink && (
+                      <a
+                        href={drive.registrationLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-blue-700/70 rounded-lg text-xs font-bold text-blue-300 bg-blue-950/50 hover:bg-blue-900/50 transition shadow-2xs"
+                      >
+                        <ExternalLink className="h-4 w-4 text-blue-400" />
+                        Company Registration Link
+                      </a>
+                    )}
+
                     {user && user.role !== 'STUDENT' && (
                       <span className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-neutral-900 text-neutral-300 border border-neutral-700 rounded-lg text-xs font-semibold">
                         <Info className="h-4 w-4 text-neutral-400" />
                         <span>{user.role === 'MAIN_COORDINATOR' ? 'Super Admin Mode' : 'Coordinator Mode'}</span>
                       </span>
+                    )}
+
+                    {user?.role === 'MAIN_COORDINATOR' && (
+                      <button
+                        type="button"
+                        onClick={handleDeleteCurrentDrive}
+                        disabled={isDeletingDrive}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-red-800/70 hover:border-red-700 rounded-lg text-xs font-semibold text-red-400 bg-red-950/40 hover:bg-red-900/60 transition shadow-2xs"
+                        title="Permanently take down and delete this recruitment drive"
+                      >
+                        <Trash2 className="h-4 w-4 text-red-400" />
+                        <span>{isDeletingDrive ? 'Taking Down...' : 'Take Down Drive'}</span>
+                      </button>
                     )}
 
                     {user?.role === 'STUDENT' && drive.open && (
@@ -330,7 +378,7 @@ function DriveApplicationContent({ params }: DrivePageProps) {
 
                   <div className="p-3 bg-neutral-900/60 rounded-lg border border-neutral-800">
                     <span className="text-neutral-400 block font-medium">Minimum Cutoff CGPA</span>
-                    <span className="text-indigo-700 font-bold mt-1 block">
+                    <span className="text-white font-bold mt-1 block">
                       {drive.minCgpa > 0 ? `${drive.minCgpa} CGPA` : 'No Cutoff (0.0)'}
                     </span>
                   </div>
@@ -339,7 +387,7 @@ function DriveApplicationContent({ params }: DrivePageProps) {
                     <span className="text-neutral-400 block font-medium">Backlog / Supply Policy</span>
                     <span
                       className={`font-bold mt-1 block ${
-                        drive.allowBacklogs ? 'text-amber-700' : 'text-emerald-700'
+                        drive.allowBacklogs ? 'text-amber-400' : 'text-emerald-400'
                       }`}
                     >
                       {drive.allowBacklogs
@@ -407,26 +455,26 @@ function DriveApplicationContent({ params }: DrivePageProps) {
 
                 {/* Feedback Messages */}
                 {applySuccess && (
-                  <div className="p-4 bg-emerald-50 border-b border-emerald-200 flex items-center gap-2 text-xs font-semibold text-emerald-800">
-                    <CheckCircle className="h-4 w-4 text-emerald-600 shrink-0" />
+                  <div className="p-4 bg-emerald-950/60 border-b border-emerald-800/60 flex items-center gap-2 text-xs font-semibold text-emerald-200">
+                    <CheckCircle className="h-4 w-4 text-emerald-400 shrink-0" />
                     <span>{applySuccess} You can now update your details in the spreadsheet below.</span>
                   </div>
                 )}
 
                 {applyError && (
-                  <div className="p-4 bg-red-50 border-b border-red-200 flex items-center gap-2 text-xs font-semibold text-red-800">
-                    <AlertTriangle className="h-4 w-4 text-red-600 shrink-0" />
+                  <div className="p-4 bg-red-950/60 border-b border-red-800/60 flex items-center gap-2 text-xs font-semibold text-red-200">
+                    <AlertTriangle className="h-4 w-4 text-red-400 shrink-0" />
                     <span>{applyError}</span>
                   </div>
                 )}
 
                 {user?.role === 'STUDENT' && drive.reasons && drive.reasons.length > 0 && (
-                  <div className="p-4 bg-amber-50 border-b border-amber-200 text-xs">
-                    <div className="flex items-center gap-1.5 font-bold text-amber-900 mb-1">
-                      <Info className="h-4 w-4 text-amber-700" />
+                  <div className="p-4 bg-amber-950/60 border-b border-amber-800/60 text-xs">
+                    <div className="flex items-center gap-1.5 font-bold text-amber-200 mb-1">
+                      <Info className="h-4 w-4 text-amber-400" />
                       <span>Eligibility Criteria Breakdown:</span>
                     </div>
-                    <ul className="list-disc list-inside text-amber-800 space-y-0.5">
+                    <ul className="list-disc list-inside text-amber-300 space-y-0.5">
                       {drive.reasons.map((r, i) => (
                         <li key={i}>{r}</li>
                       ))}
@@ -446,10 +494,14 @@ function DriveApplicationContent({ params }: DrivePageProps) {
                     <span className="text-xs text-neutral-400 font-mono">2022–2025 Archive Synthesis</span>
                   </div>
                   <h3 className="text-base font-bold text-white">
-                    Simulated Online Assessment (OA) Coding Round
+                    {drive.codingEnabled !== false
+                      ? 'Simulated Online Assessment (OA) Coding Round'
+                      : 'Simulated Online Assessment (OA) Aptitude & MCQs'}
                   </h3>
                   <p className="text-xs text-neutral-400 max-w-xl leading-relaxed">
-                    Practice questions synthesized from real previous years coding tests asked by {drive.company} across LeetCode Discuss, GeeksforGeeks, and campus interview archives, with authentic time limits and sandboxed test execution.
+                    {drive.codingEnabled !== false
+                      ? `Practice questions synthesized from real previous years coding tests asked by ${drive.company} across LeetCode Discuss, GeeksforGeeks, and campus interview archives, with authentic time limits and sandboxed test execution.`
+                      : `Practice 30 technical and aptitude MCQs tailored for ${drive.company} hiring patterns and core CS domain assessments.`}
                   </p>
                 </div>
                 <Link

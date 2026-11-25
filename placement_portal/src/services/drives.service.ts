@@ -35,9 +35,11 @@ export interface DriveItem {
   packageCategory: PackageCategory;
   ctcLpa: number | null;
   youtubeUrl?: string | null;
+  registrationLink?: string | null;
   jdFileUrl: string | null;
   jdFileUrls?: string[];
   mockTestPdfUrls?: string[];
+  codingEnabled?: boolean;
   companyFormat?: CompanyFormatColumn[];
   deadline: string;
   eligibleBranches: string[];
@@ -49,9 +51,25 @@ export interface DriveItem {
   createdBy: string;
   createdAt: string;
   open: boolean;
+  isPrevious?: boolean;
+  placedCandidates?: {
+    userId: string;
+    studentId: string;
+    name: string | null;
+    branch: string | null;
+  }[];
   eligible?: boolean;
   reasons?: string[];
   userApplied?: boolean;
+}
+
+export interface MatchedShortlistStudent {
+  userId: string;
+  studentId: string;
+  name: string;
+  branch: string;
+  email: string | null;
+  matchSource: 'ROLL_NO' | 'REG_NO' | 'EMAIL' | 'NAME';
 }
 
 export interface JdSummaryResult {
@@ -98,6 +116,7 @@ export interface PublicPlacementStats {
 }
 
 export interface NotificationRecipient {
+  userId?: string;
   email: string;
   name: string;
   studentId: string;
@@ -108,11 +127,20 @@ export interface NotificationRecipient {
 }
 
 export interface NotificationResult {
-  driveId: string;
-  driveTitle: string;
-  totalEligible: number;
-  sentCount: number;
-  recipients: NotificationRecipient[];
+  driveId?: string;
+  driveTitle?: string;
+  totalEligible?: number;
+  sentCount?: number;
+  recipients?: NotificationRecipient[];
+  count?: number;
+  drive?: {
+    id: string;
+    company: string;
+    role: string | null;
+    packageCategory: string | null;
+    ctcLpa: number | null;
+    sheetLink: string;
+  };
 }
 
 export interface DriveStats {
@@ -350,9 +378,28 @@ export async function updateDriveDetails(
     packageCategory?: PackageCategory;
     ctcLpa?: number | null;
     youtubeUrl?: string | null;
+    registrationLink?: string | null;
+    codingEnabled?: boolean;
   }
 ): Promise<DriveItem> {
   const response = await apiClient.patch<DriveItem>(`/drives/${driveId}/details`, payload);
+  return response.data;
+}
+
+/**
+ * Permanently deletes / takes down a recruitment drive.
+ * Super Admin (MAIN_COORDINATOR) only.
+ */
+export async function deleteDrive(
+  driveId: string
+): Promise<{ success: boolean; deletedDriveId: string; company: string; role?: string | null; message: string }> {
+  const response = await apiClient.delete<{
+    success: boolean;
+    deletedDriveId: string;
+    company: string;
+    role?: string | null;
+    message: string;
+  }>(`/drives/${driveId}`);
   return response.data;
 }
 
@@ -369,5 +416,57 @@ export function getYouTubeEmbedUrl(url?: string | null): string | null {
 }
 
 export { uploadMockTestPdf } from './assessments.service';
+
+/**
+ * Uploads a shortlisted candidate PDF (or text) for a drive and matches students from the database.
+ */
+export async function parseShortlistPdf(
+  driveId: string,
+  params: { file?: File; rawText?: string }
+): Promise<{
+  matchedStudents: MatchedShortlistStudent[];
+  extractedPreview: string;
+}> {
+  const formData = new FormData();
+  if (params.file) {
+    formData.append('file', params.file);
+  }
+  if (params.rawText) {
+    formData.append('rawText', params.rawText);
+  }
+  const response = await apiClient.post<{
+    matchedStudents: MatchedShortlistStudent[];
+    extractedPreview: string;
+  }>(`/drives/${driveId}/shortlist/parse-pdf`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return response.data;
+}
+
+/**
+ * Confirms shortlisted students for a drive round/interview and dispatches in-app portal notifications.
+ */
+export async function notifyShortlistedStudents(
+  driveId: string,
+  payload: {
+    studentUserIds: string[];
+    roundNumber: number;
+    roundName?: string;
+    markAsPlaced?: boolean;
+  }
+): Promise<{
+  success: boolean;
+  notifiedCount: number;
+  roundLabel: string;
+  message: string;
+}> {
+  const response = await apiClient.post<{
+    success: boolean;
+    notifiedCount: number;
+    roundLabel: string;
+    message: string;
+  }>(`/drives/${driveId}/shortlist/notify`, payload);
+  return response.data;
+}
 
 

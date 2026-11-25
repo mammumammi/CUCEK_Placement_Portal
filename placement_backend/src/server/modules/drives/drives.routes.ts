@@ -22,6 +22,7 @@ import {
   updateApplicationRound,
   getDriveStats,
   updateDriveDetails,
+  deleteDrive,
 } from './drives.service';
 import {
   buildDriveExportWorkbook,
@@ -36,6 +37,10 @@ import {
 import { summarizeJobDescription } from './jd-summarizer.service';
 import { notifyEligibleStudentsForDrive } from './mail.service';
 import { generateDriveMockOA } from '../assessments/assessments.service';
+import {
+  parseShortlistPdfAndMatch,
+  confirmShortlistAndNotify,
+} from './shortlist.service';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -452,6 +457,22 @@ export function createDrivesRouter(
     }
   );
 
+  // DELETE /api/drives/:driveId (Super Admin takes down / deletes a recruitment drive)
+  router.delete(
+    '/:driveId',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const driveId = Array.isArray(req.params.driveId) ? req.params.driveId[0] : req.params.driveId;
+        const result = await deleteDrive(db, req.user!, driveId);
+        res.status(200).json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
   // GET /api/drives (All authenticated roles; includes open, and eligible+reasons for students)
   router.get(
     '/',
@@ -706,6 +727,49 @@ export function createDrivesRouter(
           message: `Mock test PDF attached and multi-agent assessment synthesized (${newPdfUrls.length} file(s)).`,
           mockTestPdfUrls: mergedUrls,
         });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // POST /api/drives/:driveId/shortlist/parse-pdf (Coordinators upload shortlisted candidate PDF & match DB students)
+  router.post(
+    '/:driveId/shortlist/parse-pdf',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR', 'BRANCH_COORDINATOR'),
+    upload.single('file'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const driveId = String(req.params.driveId);
+        const rawText = typeof req.body?.rawText === 'string' ? req.body.rawText : undefined;
+        const result = await parseShortlistPdfAndMatch(db, req.user!, driveId, {
+          pdfBuffer: req.file?.buffer,
+          rawText,
+        });
+        res.status(200).json(result);
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  // POST /api/drives/:driveId/shortlist/notify (Coordinators confirm shortlisted students & notify in portal)
+  router.post(
+    '/:driveId/shortlist/notify',
+    requireAuth,
+    requireRoles('MAIN_COORDINATOR', 'BRANCH_COORDINATOR'),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const driveId = String(req.params.driveId);
+        const { studentUserIds, roundNumber, roundName, markAsPlaced } = req.body || {};
+        const result = await confirmShortlistAndNotify(db, req.user!, driveId, {
+          studentUserIds: Array.isArray(studentUserIds) ? studentUserIds : [],
+          roundNumber: Number(roundNumber) || 1,
+          roundName: typeof roundName === 'string' ? roundName : undefined,
+          markAsPlaced: Boolean(markAsPlaced),
+        });
+        res.status(200).json(result);
       } catch (err) {
         next(err);
       }
