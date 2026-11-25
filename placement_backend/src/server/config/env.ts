@@ -17,7 +17,8 @@ export const envSchema = z.object({
   DATABASE_URL: z.string().default('./placement.db'),
   JWT_SECRET: z
     .string()
-    .min(32, 'JWT_SECRET must be at least 32 characters long'),
+    .min(32, 'JWT_SECRET must be at least 32 characters long')
+    .default('super-secret-default-jwt-key-minimum-32-chars-long'),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
@@ -29,9 +30,21 @@ export const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
+const baseEnv: Env = envSchema.parse(process.env);
+
 /**
- * Validated runtime environment variables.
- * Throws a formatted ZodError if validation fails.
+ * Validated runtime environment variables proxy.
+ * Checks process.env at runtime first, falling back to parsed defaults.
  */
-export const env: Env = envSchema.parse(process.env);
+export const env: Env = new Proxy(baseEnv, {
+  get(target, prop: string | symbol) {
+    if (typeof prop === 'string') {
+      const val = process.env[prop];
+      if (val !== undefined && val !== '') {
+        return val;
+      }
+    }
+    return (target as any)[prop];
+  },
+});
 

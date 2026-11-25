@@ -1,25 +1,29 @@
 /**
- * @fileoverview Database client factory using better-sqlite3 and Drizzle ORM.
+ * @fileoverview Database client factory supporting both better-sqlite3 (local dev)
+ * and Cloudflare D1 (production Workers deployment).
  * @module core/db/client
  */
 
 import Database from 'better-sqlite3';
 import { drizzle, BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import type { D1Database } from '@cloudflare/workers-types';
-
+import { drizzle as drizzleD1 } from 'drizzle-orm/d1';
+import type { DrizzleD1Database } from 'drizzle-orm/d1';
+import * as schema from './index';
 
 /**
- * Type alias for the strongly-typed Drizzle better-sqlite3 database instance.
+ * Type alias for the strongly-typed Drizzle database instance.
+ * Both better-sqlite3 and D1 Drizzle instances expose the same query API,
+ * so we use a union type to allow either.
  */
-export type Db = BetterSQLite3Database<typeof schema>;
+export type Db = BetterSQLite3Database<typeof schema> | DrizzleD1Database<typeof schema>;
 
 /**
- * Creates and initializes a Drizzle SQLite database instance.
+ * Creates and initializes a Drizzle SQLite database instance (local dev / tests).
  *
  * @param url - Path to the SQLite database file or ':memory:'.
  * @returns Fully typed Drizzle ORM database instance configured with WAL and foreign keys enabled.
  */
-export function createDb(url: string): Db {
+export function createDb(url: string): BetterSQLite3Database<typeof schema> {
   const sqlite = new Database(url);
   sqlite.pragma('foreign_keys = ON');
   sqlite.pragma('journal_mode = WAL');
@@ -27,26 +31,11 @@ export function createDb(url: string): Db {
 }
 
 /**
- * Creates a Drizzle DB instance for Cloudflare D1 binding.
- * @param binding - The D1 database binding provided by Cloudflare Workers.
+ * Creates a Drizzle DB instance backed by a Cloudflare D1 binding.
+ *
+ * @param d1 - The D1Database binding provided by Cloudflare Workers runtime.
+ * @returns Drizzle ORM database instance backed by D1.
  */
-export function createD1Db(binding: D1Database): Db {
-  // Import the D1 driver lazily to avoid loading it in non‑Worker environments.
-  const { drizzle } = require('drizzle-orm/d1');
-  return drizzle(binding, { schema }) as Db;
+export function createD1Db(d1: D1Database): DrizzleD1Database<typeof schema> {
+  return drizzleD1(d1, { schema });
 }
-
-/**
- * Helper to obtain a DB instance based on environment configuration.
- * Use DB_TYPE='d1' and provide the D1 binding via the `env` argument for Workers.
- * Otherwise falls back to the local SQLite file defined by DATABASE_URL or ':memory:'.
- */
-export function getDb(env?: { DB?: D1Database }): Db {
-  if (process.env.DB_TYPE === 'd1' && env?.DB) {
-    return createD1Db(env.DB);
-  }
-  const url = process.env.DATABASE_URL ?? ':memory:';
-  return createDb(url);
-}
-
-

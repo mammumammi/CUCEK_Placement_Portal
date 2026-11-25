@@ -16,7 +16,9 @@ export interface AuthTokenPayload {
   branch: string | null;
 }
 
-const secretKey = new TextEncoder().encode(env.JWT_SECRET);
+function getSecretKey(): Uint8Array {
+  return new TextEncoder().encode(env.JWT_SECRET);
+}
 
 /**
  * Signs a JWT token with HS256 algorithm and 8-hour expiration.
@@ -33,7 +35,7 @@ export async function signToken(payload: AuthTokenPayload): Promise<string> {
     .setSubject(payload.sub)
     .setIssuedAt()
     .setExpirationTime('8h')
-    .sign(secretKey);
+    .sign(getSecretKey());
 }
 
 /**
@@ -43,7 +45,7 @@ export async function signToken(payload: AuthTokenPayload): Promise<string> {
  * @returns Verified AuthTokenPayload.
  */
 export async function verifyToken(token: string): Promise<AuthTokenPayload> {
-  const { payload } = await jwtVerify(token, secretKey, {
+  const { payload } = await jwtVerify(token, getSecretKey(), {
     algorithms: ['HS256'],
   });
 

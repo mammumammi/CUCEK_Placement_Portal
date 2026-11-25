@@ -1,0 +1,14 @@
+name = "placement-backend"            # change if you want a unique worker name
+main = "src/worker.ts"
+compatibility_date = "2024-01-01"
+
+# -------------------------------------------------
+# D1 binding – insert the ID you copied above
+# -------------------------------------------------
+[[d1_databases]]
+binding = "DB"
+database_name = "placement-db"
+database_id = "e6b9221b-fc7f-4173-9495-a8b0567472db"
+# -------------------------------------------------
+
+node_compat = true   # lets you keep most of your Node‑style code

@@ -202,7 +202,7 @@ export function PlacedStudentsManager({
         ? +(packages.reduce((acc, curr) => acc + curr, 0) / packages.length).toFixed(2)
         : 0;
     const dreamCount = placedList.filter(
-      (p) => p.packageCategory === 'DREAM' || (p.ctcLpa !== null && p.ctcLpa >= 10)
+      (p) => p.packageCategory === 'DREAM' || (p.ctcLpa !== null && p.ctcLpa >= 7)
     ).length;
     return { total, highest, average, dreamCount };
   }, [placedList]);
@@ -255,7 +255,7 @@ export function PlacedStudentsManager({
         company: 'Tata Consultancy Services (TCS)',
         ctcLpa: 7.0,
         role: 'Digital Systems Trainee',
-        packageCategory: 'GENERAL',
+        packageCategory: 'DREAM',
       });
 
       // Style header row
@@ -569,7 +569,7 @@ export function PlacedStudentsManager({
               <span className="text-2xl sm:text-3xl font-black text-white">
                 {metrics.dreamCount}
               </span>
-              <span className="text-[11px] font-mono text-amber-400/90">&ge; 10 LPA / Dream</span>
+              <span className="text-[11px] font-mono text-amber-400/90">&ge; 7 LPA / Dream</span>
             </div>
           </div>
         </div>
@@ -723,7 +723,7 @@ export function PlacedStudentsManager({
                       )}
                     </td>
                     <td className="px-4 py-3 font-sans">
-                      {student.packageCategory === 'DREAM' ? (
+                      {student.packageCategory === 'DREAM' || (student.packageCategory !== 'INTERNSHIP' && student.ctcLpa !== null && student.ctcLpa >= 7) ? (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white text-black shadow-xs">
                           Dream
                         </span>
@@ -946,7 +946,7 @@ export function PlacedStudentsManager({
                     className="w-full bg-[#18181b] border border-neutral-700 focus:border-white focus:outline-none rounded-xl px-3 py-2.5 text-white text-xs"
                   >
                     <option value="GENERAL">General</option>
-                    <option value="DREAM">Dream (&ge;10 LPA)</option>
+                    <option value="DREAM">Dream (&ge;7 LPA)</option>
                     <option value="INTERNSHIP">Internship</option>
                   </select>
                 </div>

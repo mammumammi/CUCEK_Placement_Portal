@@ -966,6 +966,7 @@ export async function listPlacedStudents(
       role: drives.role,
       ctcLpa: drives.ctcLpa,
       packageCategory: drives.packageCategory,
+      placementStatus: studentProfiles.placementStatus,
       placedAt: applications.createdAt,
     })
     .from(applications)
@@ -974,10 +975,34 @@ export async function listPlacedStudents(
     .where(eq(applications.placed, true));
 
   const allPlaced = await query;
+  const mapped = allPlaced.map((p) => {
+    let effectiveCategory: 'GENERAL' | 'DREAM' | 'INTERNSHIP' = (p.packageCategory as any) || 'GENERAL';
+    if (effectiveCategory !== 'INTERNSHIP') {
+      if (effectiveCategory === 'DREAM' || (p.ctcLpa !== null && p.ctcLpa >= 7.0) || p.placementStatus === 'DREAM') {
+        effectiveCategory = 'DREAM';
+      }
+    }
+    return {
+      applicationId: p.applicationId,
+      driveId: p.driveId,
+      studentUserId: p.studentUserId,
+      studentId: p.studentId,
+      name: p.name,
+      branch: p.branch,
+      batch: p.batch,
+      cgpa: p.cgpa,
+      company: p.company,
+      role: p.role,
+      ctcLpa: p.ctcLpa,
+      packageCategory: effectiveCategory,
+      placedAt: p.placedAt,
+    };
+  });
+
   if (!targetBranch) {
-    return allPlaced;
+    return mapped;
   }
-  return allPlaced.filter((p) => p.branch && p.branch.toUpperCase() === targetBranch.toUpperCase());
+  return mapped.filter((p) => p.branch && p.branch.toUpperCase() === targetBranch.toUpperCase());
 }
 
 /**
@@ -1020,6 +1045,11 @@ export async function recordPlacedStudentManual(
   }
 
   // 2. Find or create drive
+  let computedCategory: 'GENERAL' | 'DREAM' | 'INTERNSHIP' = input.packageCategory || 'GENERAL';
+  if (computedCategory !== 'INTERNSHIP' && input.ctcLpa !== null && input.ctcLpa !== undefined && input.ctcLpa >= 7.0) {
+    computedCategory = 'DREAM';
+  }
+
   let targetDriveId = input.driveId;
   let targetDriveCompany = input.company.trim();
 
@@ -1033,11 +1063,29 @@ export async function recordPlacedStudentManual(
     // Look up existing drive with matching company name
     const allMatchingDrives = await db.select().from(drives);
     const existingCompanyDrive = allMatchingDrives.find(
+      (d) =>
+        d.company.toLowerCase() === input.company.trim().toLowerCase() &&
+        d.packageCategory === computedCategory
+    ) || allMatchingDrives.find(
       (d) => d.company.toLowerCase() === input.company.trim().toLowerCase()
     );
 
     if (existingCompanyDrive) {
       targetDriveId = existingCompanyDrive.id;
+      targetDriveCompany = existingCompanyDrive.company;
+      if (
+        (computedCategory === 'DREAM' && existingCompanyDrive.packageCategory !== 'DREAM') ||
+        (input.ctcLpa !== undefined && input.ctcLpa !== null && (existingCompanyDrive.ctcLpa === null || existingCompanyDrive.ctcLpa < input.ctcLpa))
+      ) {
+        await db
+          .update(drives)
+          .set({
+            packageCategory: computedCategory,
+            ...(input.ctcLpa !== undefined && input.ctcLpa !== null ? { ctcLpa: input.ctcLpa } : {}),
+            ...(input.role?.trim() ? { role: input.role.trim() } : {}),
+          })
+          .where(eq(drives.id, existingCompanyDrive.id));
+      }
     } else {
       // Create new drive representation for company placement
       const newDriveId = crypto.randomUUID();
@@ -1049,7 +1097,7 @@ export async function recordPlacedStudentManual(
         company: input.company.trim(),
         role: input.role?.trim() || 'Placed Trainee',
         ctcLpa: input.ctcLpa || null,
-        packageCategory: input.packageCategory || 'GENERAL',
+        packageCategory: computedCategory,
         deadline: deadlineDate.toISOString(),
         eligibleBranches: ['CSE', 'ECE', 'EEE', 'IT', 'CIVIL', 'MCA'],
         minCgpa: 0,
@@ -1091,10 +1139,9 @@ export async function recordPlacedStudentManual(
   }
 
   // 4. Update student profile placementStatus
-  const newPlacementStatus = input.packageCategory || 'GENERAL';
   await db
     .update(studentProfiles)
-    .set({ placementStatus: newPlacementStatus })
+    .set({ placementStatus: computedCategory })
     .where(eq(studentProfiles.userId, student.userId));
 
   // 5. Audit log
@@ -1104,7 +1151,7 @@ export async function recordPlacedStudentManual(
     studentUserId: student.userId,
     field: 'placed',
     oldValue: existingApp?.placed ? 'true' : 'false',
-    newValue: `true (${targetDriveCompany} - ${input.ctcLpa || 0} LPA - ${newPlacementStatus})`,
+    newValue: `true (${targetDriveCompany} - ${input.ctcLpa || 0} LPA - ${computedCategory})`,
     createdAt: new Date(),
   });
 
@@ -1116,7 +1163,7 @@ export async function recordPlacedStudentManual(
     company: targetDriveCompany,
     role: input.role || null,
     ctcLpa: input.ctcLpa || null,
-    packageCategory: input.packageCategory || 'GENERAL',
+    packageCategory: computedCategory,
     message: `Student ${student.name || student.studentId} successfully marked as placed at ${targetDriveCompany}.`,
   };
 }
@@ -1209,8 +1256,12 @@ export async function previewPlacedStudentsExcel(
       }
     }
 
-    const packageCategory: 'GENERAL' | 'DREAM' | 'INTERNSHIP' =
+    let packageCategory: 'GENERAL' | 'DREAM' | 'INTERNSHIP' =
       rawCat.includes('DREAM') ? 'DREAM' : rawCat.includes('INTERN') ? 'INTERNSHIP' : 'GENERAL';
+
+    if (packageCategory !== 'INTERNSHIP' && ctcLpa !== null && ctcLpa >= 7.0) {
+      packageCategory = 'DREAM';
+    }
 
     const student = profileMap.get(rawStudentId.toLowerCase());
     let valid = true;
