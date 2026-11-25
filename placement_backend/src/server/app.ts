@@ -59,6 +59,16 @@ export function createApp(db: Db, options?: AppOptions): Express {
   // Attach db to app locals for convenient route access if needed
   app.locals.db = db;
 
+  // Root welcome route
+  app.get('/', (_req: Request, res: Response) => {
+    res.status(200).json({
+      status: 'ok',
+      service: 'CUCEK Placement Portal Backend API',
+      health: '/api/health',
+      docs: '/api/drives/public-stats',
+    });
+  });
+
   // 2. Health check route
   app.get('/api/health', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'ok' });
