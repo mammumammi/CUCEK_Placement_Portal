@@ -50,7 +50,7 @@ export function createAuthRouter(
         const { user, token } = await login(db, input);
 
         res.cookie(SESSION_COOKIE_NAME, token, SESSION_COOKIE_OPTIONS);
-        res.status(200).json({ user });
+        res.status(200).json({ user, token });
       } catch (err) {
         next(err);
       }

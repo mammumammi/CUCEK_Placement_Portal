@@ -48,7 +48,11 @@ export async function requireAuth(
   res: Response,
   next: NextFunction
 ): Promise<void> {
-  const token = req.cookies?.[SESSION_COOKIE_NAME];
+  let token = req.cookies?.[SESSION_COOKIE_NAME];
+  if (!token && typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')) {
+    token = req.headers.authorization.slice(7).trim();
+  }
+
   if (!token) {
     res.status(401).json({
       error: {

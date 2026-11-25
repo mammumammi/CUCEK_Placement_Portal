@@ -36,6 +36,9 @@ export interface AppOptions {
 export function createApp(db: Db, options?: AppOptions): Express {
   const app = express();
 
+  // Trust reverse proxies (Render, Cloudflare, Vercel) for correct client IP detection
+  app.set('trust proxy', 1);
+
   // 1. Core global middleware
   app.use(cors({
     origin: (origin, callback) => {

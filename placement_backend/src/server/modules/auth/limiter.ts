@@ -16,8 +16,8 @@ import type { Request, Response } from 'express';
  */
 export function createLoginLimiter(customOptions?: Partial<Options>) {
   return rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    limit: 5,
+    windowMs: 60 * 1000, // 1 minute
+    limit: 60, // 60 attempts per minute
     skipSuccessfulRequests: true,
     standardHeaders: 'draft-7',
     legacyHeaders: false,

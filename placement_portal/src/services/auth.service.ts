@@ -15,6 +15,7 @@ export interface AuthUser {
 
 export interface LoginResponse {
   user: AuthUser;
+  token?: string;
 }
 
 export interface GetMeResponse {
@@ -36,6 +37,9 @@ export async function login(
     username,
     password,
   });
+  if (response.data.token && typeof window !== 'undefined') {
+    localStorage.setItem('auth_token', response.data.token);
+  }
   return response.data.user;
 }
 
@@ -43,7 +47,13 @@ export async function login(
  * Destroys current session via POST /auth/logout.
  */
 export async function logout(): Promise<void> {
-  await apiClient.post('/auth/logout');
+  try {
+    await apiClient.post('/auth/logout');
+  } finally {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('auth_token');
+    }
+  }
 }
 
 /**
