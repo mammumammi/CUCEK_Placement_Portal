@@ -248,6 +248,7 @@ export function createDrivesRouter(
         })
         .from(applications)
         .innerJoin(drives, eq(applications.driveId, drives.id))
+        .innerJoin(studentProfiles, eq(applications.studentUserId, studentProfiles.userId))
         .where(eq(applications.placed, true));
 
       const placedStudentUserIds = new Set(placedApps.map((p) => p.studentUserId));

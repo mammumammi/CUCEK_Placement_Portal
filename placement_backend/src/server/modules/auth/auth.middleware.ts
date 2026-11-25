@@ -15,7 +15,7 @@ export const SESSION_COOKIE_NAME = 'session';
 
 export const SESSION_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
-  sameSite: 'lax',
+  sameSite: env.NODE_ENV === 'production' ? 'none' : 'lax',
   secure: env.NODE_ENV === 'production',
   maxAge: 8 * 60 * 60 * 1000, // 8 hours in ms
   path: '/',

