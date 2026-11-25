@@ -52,6 +52,10 @@ export async function requireAuth(
   if (!token && typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')) {
     token = req.headers.authorization.slice(7).trim();
   }
+  // Allow passing token via query param for file downloads and new-tab exports
+  if (!token && typeof req.query?.token === 'string') {
+    token = req.query.token.trim();
+  }
 
   if (!token) {
     res.status(401).json({

@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { API_BASE_URL } from '@/lib/api-client';
+import { API_BASE_URL, getAuthUrl } from '@/lib/api-client';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
@@ -893,8 +893,7 @@ function MockAssessmentContent() {
 
                   <div className="flex items-center gap-2">
                     {assessment.mockTestPdfUrls.map((url, i) => {
-                      const origin = API_BASE_URL.replace(/\/api\/?$/, '');
-                      const fullUrl = url.startsWith('http') ? url : `${origin}${url.startsWith('/') ? '' : '/'}${url}`;
+                      const fullUrl = url.startsWith('http') ? url : getAuthUrl(url);
                       return (
                         <a
                           key={i}

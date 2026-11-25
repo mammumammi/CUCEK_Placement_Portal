@@ -11,7 +11,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { API_BASE_URL } from '@/lib/api-client';
+import { API_BASE_URL, getAuthUrl } from '@/lib/api-client';
 import {
   Building2,
   Calendar,
@@ -294,7 +294,7 @@ function DriveApplicationContent({ params }: DrivePageProps) {
 
                     {drive.jdFileUrl && (
                       <a
-                        href={`${API_BASE_URL}/drives/${drive.id}/jd`}
+                        href={getAuthUrl(`/drives/${drive.id}/jd`)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1.5 px-3.5 py-2 border border-neutral-700 rounded-lg text-xs font-semibold text-neutral-300 bg-[#101012] hover:bg-neutral-900/60 transition shadow-2xs"

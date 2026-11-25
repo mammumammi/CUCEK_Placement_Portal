@@ -12,7 +12,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import gsap from 'gsap';
 import { DepartmentPlacementPieChart } from '@/components/analytics/DepartmentPlacementPieChart';
 import { PlacedStudentsManager } from '@/components/placements/PlacedStudentsManager';
-import { API_BASE_URL } from '@/lib/api-client';
+import { API_BASE_URL, getAuthUrl } from '@/lib/api-client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import ExcelJS from 'exceljs';
@@ -3234,7 +3234,7 @@ export default function AdminPage() {
                               </button>
 
                               <a
-                                href={`${API_BASE_URL}/drives/${d.id}/export`}
+                                href={getAuthUrl(`/drives/${d.id}/export`)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-200 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition whitespace-nowrap"
@@ -3245,7 +3245,7 @@ export default function AdminPage() {
                               </a>
 
                               <a
-                                href={`${API_BASE_URL}/drives/${d.id}/export?format=company`}
+                                href={getAuthUrl(`/drives/${d.id}/export?format=company`)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-300 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-800/70 transition whitespace-nowrap"
@@ -3639,7 +3639,7 @@ export default function AdminPage() {
 
                 <div className="flex items-center gap-2 shrink-0">
                   <a
-                    href={`${API_BASE_URL}/drives/statistics/export-excel`}
+                    href={getAuthUrl('/drives/statistics/export-excel')}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
@@ -3746,7 +3746,7 @@ export default function AdminPage() {
 
                       <div className="flex items-center gap-2">
                         <a
-                          href={`${API_BASE_URL}/drives/statistics/download-template`}
+                          href={getAuthUrl('/drives/statistics/download-template')}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-neutral-700 rounded-lg text-xs font-semibold text-neutral-200 bg-neutral-900 hover:bg-neutral-800 transition shadow-2xs"
@@ -3960,7 +3960,7 @@ export default function AdminPage() {
 
                 <div className="pt-2 flex justify-end">
                   <a
-                    href={`${API_BASE_URL}/drives/statistics/export-excel`}
+                    href={getAuthUrl('/drives/statistics/export-excel')}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-neutral-950 font-extrabold rounded-xl text-xs transition shadow-md"
