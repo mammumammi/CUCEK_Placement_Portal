@@ -203,11 +203,9 @@ export function PlacedStudentsManager({
         : 0;
     const dreamCount = placedList.filter(
       (p) =>
-        p.packageCategory === 'DREAM' ||
-        (p.packageCategory !== 'INTERNSHIP' &&
-          p.ctcLpa !== null &&
-          p.ctcLpa !== undefined &&
-          Number(p.ctcLpa) >= 7.0)
+        p.packageCategory !== 'INTERNSHIP' &&
+        ((p.ctcLpa !== null && p.ctcLpa !== undefined && Number(p.ctcLpa) >= 7.0) ||
+          (p.packageCategory === 'DREAM' && (p.ctcLpa === null || p.ctcLpa === undefined)))
     ).length;
     return { total, highest, average, dreamCount };
   }, [placedList]);
@@ -315,8 +313,10 @@ export function PlacedStudentsManager({
     }
 
     let finalCategory = manualForm.packageCategory;
-    if (ctc !== null && ctc >= 7.0 && finalCategory !== 'INTERNSHIP') {
-      finalCategory = 'DREAM';
+    if (finalCategory !== 'INTERNSHIP') {
+      if (ctc !== null) {
+        finalCategory = ctc >= 7.0 ? 'DREAM' : 'GENERAL';
+      }
     }
 
     try {
@@ -733,7 +733,9 @@ export function PlacedStudentsManager({
                       )}
                     </td>
                     <td className="px-4 py-3 font-sans">
-                      {student.packageCategory === 'DREAM' || (student.packageCategory !== 'INTERNSHIP' && student.ctcLpa !== null && student.ctcLpa >= 7) ? (
+                      {student.packageCategory !== 'INTERNSHIP' &&
+                      ((student.ctcLpa !== null && Number(student.ctcLpa) >= 7) ||
+                        (student.packageCategory === 'DREAM' && (student.ctcLpa === null || Number(student.ctcLpa) >= 7))) ? (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-white text-black shadow-xs">
                           Dream
                         </span>
@@ -936,7 +938,15 @@ export function PlacedStudentsManager({
                     min="0"
                     placeholder="e.g. 14.5"
                     value={manualForm.ctcLpa}
-                    onChange={(e) => setManualForm({ ...manualForm, ctcLpa: e.target.value })}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      const num = parseFloat(val);
+                      let newCat = manualForm.packageCategory;
+                      if (!isNaN(num) && newCat !== 'INTERNSHIP') {
+                        newCat = num >= 7.0 ? 'DREAM' : 'GENERAL';
+                      }
+                      setManualForm({ ...manualForm, ctcLpa: val, packageCategory: newCat });
+                    }}
                     className="w-full bg-[#18181b] border border-neutral-700 focus:border-white focus:outline-none rounded-xl px-3.5 py-2.5 text-white font-mono text-xs"
                   />
                 </div>

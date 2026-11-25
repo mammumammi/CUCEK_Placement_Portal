@@ -978,8 +978,10 @@ export async function listPlacedStudents(
   const mapped = allPlaced.map((p) => {
     let effectiveCategory: 'GENERAL' | 'DREAM' | 'INTERNSHIP' = (p.packageCategory as any) || 'GENERAL';
     if (effectiveCategory !== 'INTERNSHIP') {
-      if (effectiveCategory === 'DREAM' || (p.ctcLpa !== null && p.ctcLpa >= 7.0) || p.placementStatus === 'DREAM') {
-        effectiveCategory = 'DREAM';
+      if (p.ctcLpa !== null && p.ctcLpa !== undefined) {
+        effectiveCategory = p.ctcLpa >= 7.0 ? 'DREAM' : 'GENERAL';
+      } else {
+        effectiveCategory = effectiveCategory === 'DREAM' || p.placementStatus === 'DREAM' ? 'DREAM' : 'GENERAL';
       }
     }
     return {
@@ -1046,8 +1048,10 @@ export async function recordPlacedStudentManual(
 
   // 2. Find or create drive
   let computedCategory: 'GENERAL' | 'DREAM' | 'INTERNSHIP' = input.packageCategory || 'GENERAL';
-  if (computedCategory !== 'INTERNSHIP' && input.ctcLpa !== null && input.ctcLpa !== undefined && input.ctcLpa >= 7.0) {
-    computedCategory = 'DREAM';
+  if (computedCategory !== 'INTERNSHIP') {
+    if (input.ctcLpa !== null && input.ctcLpa !== undefined) {
+      computedCategory = input.ctcLpa >= 7.0 ? 'DREAM' : 'GENERAL';
+    }
   }
 
   let targetDriveId = input.driveId;
@@ -1060,14 +1064,13 @@ export async function recordPlacedStudentManual(
     }
     targetDriveCompany = existingDrive.company;
   } else {
-    // Look up existing drive with matching company name
+    // Look up existing drive with matching company name AND matching CTC/category
     const allMatchingDrives = await db.select().from(drives);
     const existingCompanyDrive = allMatchingDrives.find(
       (d) =>
         d.company.toLowerCase() === input.company.trim().toLowerCase() &&
+        (input.ctcLpa === undefined || input.ctcLpa === null || d.ctcLpa === input.ctcLpa) &&
         d.packageCategory === computedCategory
-    ) || allMatchingDrives.find(
-      (d) => d.company.toLowerCase() === input.company.trim().toLowerCase()
     );
 
     if (existingCompanyDrive) {
@@ -1075,7 +1078,7 @@ export async function recordPlacedStudentManual(
       targetDriveCompany = existingCompanyDrive.company;
       if (
         (computedCategory === 'DREAM' && existingCompanyDrive.packageCategory !== 'DREAM') ||
-        (input.ctcLpa !== undefined && input.ctcLpa !== null && (existingCompanyDrive.ctcLpa === null || existingCompanyDrive.ctcLpa < input.ctcLpa))
+        (input.ctcLpa !== undefined && input.ctcLpa !== null && existingCompanyDrive.ctcLpa !== input.ctcLpa)
       ) {
         await db
           .update(drives)
@@ -1087,7 +1090,7 @@ export async function recordPlacedStudentManual(
           .where(eq(drives.id, existingCompanyDrive.id));
       }
     } else {
-      // Create new drive representation for company placement
+      // Create new drive representation for company placement (distinguishing packages like TCS 3.36 vs 7.0)
       const newDriveId = crypto.randomUUID();
       const deadlineDate = new Date();
       deadlineDate.setFullYear(deadlineDate.getFullYear() + 1);
@@ -1096,7 +1099,7 @@ export async function recordPlacedStudentManual(
         id: newDriveId,
         company: input.company.trim(),
         role: input.role?.trim() || 'Placed Trainee',
-        ctcLpa: input.ctcLpa || null,
+        ctcLpa: input.ctcLpa !== undefined ? input.ctcLpa : null,
         packageCategory: computedCategory,
         deadline: deadlineDate.toISOString(),
         eligibleBranches: ['CSE', 'ECE', 'EEE', 'IT', 'CIVIL', 'MCA'],
