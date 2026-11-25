@@ -8,7 +8,7 @@
  * @module app/admin/page
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import gsap from 'gsap';
 import { DepartmentPlacementPieChart } from '@/components/analytics/DepartmentPlacementPieChart';
 import { PlacedStudentsManager } from '@/components/placements/PlacedStudentsManager';
@@ -49,6 +49,9 @@ import {
   UploadCloud,
   Video,
   Bell,
+  Search,
+  Filter,
+  Eye,
 } from 'lucide-react';
 import { ShortlistModal } from '@/components/drives/ShortlistModal';
 import { useAuth } from '@/context/auth-context';
@@ -91,6 +94,13 @@ import {
   type StatsTemplateStatus,
   type PublicPlacementStats,
 } from '@/services/drives.service';
+import {
+  listProfiles,
+  deleteStudent,
+  deleteBatchStudents,
+  updateStudentPlacementStatus,
+  type StudentProfileData,
+} from '@/services/profiles.service';
 
 const CANONICAL_FIELD_OPTIONS = [
   { key: 'studentId', label: 'Student ID / Roll No', required: true },
@@ -135,9 +145,20 @@ export default function AdminPage() {
   const router = useRouter();
   const { user, logout } = useAuth();
 
-  const [adminTab, setAdminTab] = useState<'upload' | 'placed' | 'curriculum' | 'drives' | 'stats-export' | 'analytics'>('upload');
+  const [adminTab, setAdminTab] = useState<'students' | 'upload' | 'placed' | 'curriculum' | 'drives' | 'stats-export' | 'analytics'>('students');
   const setActiveTabSafe = (t: string) => setAdminTab(t as any);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Student Directory & Batch Management State
+  const [studentsList, setStudentsList] = useState<StudentProfileData[]>([]);
+  const [isLoadingStudents, setIsLoadingStudents] = useState<boolean>(false);
+  const [studentSearch, setStudentSearch] = useState<string>('');
+  const [selectedBranchFilter, setSelectedBranchFilter] = useState<string>('ALL');
+  const [selectedBatchFilter, setSelectedBatchFilter] = useState<string>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'placed' | 'unplaced' | 'backlogs' | 'zero_backlogs'>('all');
+  const [selectedStudentForModal, setSelectedStudentForModal] = useState<StudentProfileData | null>(null);
+  const [isDeletingStudent, setIsDeletingStudent] = useState<string | null>(null);
+  const [isDeletingBatch, setIsDeletingBatch] = useState<boolean>(false);
 
   // Comprehensive Placement Statistics & Reference Template State
   const [statsTemplateStatus, setStatsTemplateStatus] = useState<StatsTemplateStatus | null>(null);
@@ -207,6 +228,7 @@ export default function AdminPage() {
   const [creditsMsg, setCreditsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadTargetBranch, setUploadTargetBranch] = useState<string>('CSE');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisData, setAnalysisData] = useState<AnalyzeResponse | null>(null);
   const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
@@ -309,6 +331,70 @@ export default function AdminPage() {
     } catch (err: unknown) {
       const axiosErr = err as { message?: string };
       setRefTemplateMsg({ type: 'error', text: axiosErr.message || 'Failed to clear template' });
+    }
+  };
+
+  const fetchAllStudents = useCallback(async () => {
+    setIsLoadingStudents(true);
+    try {
+      const data = await listProfiles();
+      setStudentsList(data);
+    } catch (err: unknown) {
+      console.error('Failed to load student directory:', err);
+    } finally {
+      setIsLoadingStudents(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (adminTab === 'students') {
+      void fetchAllStudents();
+    }
+  }, [adminTab, fetchAllStudents]);
+
+  const handleDeleteSingleStudent = async (studentId: string, studentName?: string | null) => {
+    const displayName = studentName || studentId;
+    if (!window.confirm(`Are you sure you want to permanently delete student "${displayName}" (${studentId})? This will delete their user credentials, academic records, and applications.`)) {
+      return;
+    }
+
+    try {
+      setIsDeletingStudent(studentId);
+      await deleteStudent(studentId);
+      setStudentsList((prev) => prev.filter((s) => s.studentId !== studentId));
+      if (selectedStudentForModal?.studentId === studentId) {
+        setSelectedStudentForModal(null);
+      }
+      alert(`Student ${displayName} deleted successfully.`);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string }; message?: string } }; message?: string };
+      alert(axiosErr.response?.data?.error?.message || axiosErr.response?.data?.message || 'Failed to delete student.');
+    } finally {
+      setIsDeletingStudent(null);
+    }
+  };
+
+  const handleDeleteBatch = async (branch?: string, batch?: string) => {
+    const branchLabel = branch && branch !== 'ALL' ? `branch "${branch}"` : 'all branches';
+    const batchLabel = batch && batch !== 'ALL' ? `batch "${batch}"` : 'all batches';
+    const confirmPrompt = `⚠️ DANGER: Are you sure you want to delete all student records for ${branchLabel} and ${batchLabel}? This action will permanently remove their accounts, profiles, and exam data.`;
+
+    if (!window.confirm(confirmPrompt)) return;
+    if (!window.confirm('Please confirm one more time: Do you want to proceed with this batch deletion?')) return;
+
+    try {
+      setIsDeletingBatch(true);
+      const res = await deleteBatchStudents({
+        branch: branch && branch !== 'ALL' ? branch : undefined,
+        batch: batch && batch !== 'ALL' ? batch : undefined,
+      });
+      alert(res.message);
+      await fetchAllStudents();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { error?: { message?: string }; message?: string } }; message?: string };
+      alert(axiosErr.response?.data?.error?.message || axiosErr.response?.data?.message || 'Failed to delete batch records.');
+    } finally {
+      setIsDeletingBatch(false);
     }
   };
 
@@ -855,6 +941,31 @@ export default function AdminPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleUploadBranchChange = async (branch: string) => {
+    setUploadTargetBranch(branch);
+    if (selectedFile && previewData) {
+      setIsPreviewing(true);
+      setError(null);
+      try {
+        const data = await previewBulkRegistration(selectedFile, columnMapping, branch);
+        setPreviewData(data);
+      } catch (err: unknown) {
+        const axiosErr = err as {
+          response?: { data?: { error?: { message?: string }; message?: string } };
+          message?: string;
+        };
+        const message =
+          axiosErr.response?.data?.error?.message ||
+          axiosErr.response?.data?.message ||
+          axiosErr.message ||
+          'Failed to update preview for selected department';
+        setError(message);
+      } finally {
+        setIsPreviewing(false);
+      }
+    }
+  };
+
   const handlePreview = async () => {
     if (!selectedFile) {
       setError('Please select an Excel file first.');
@@ -866,7 +977,7 @@ export default function AdminPage() {
     setCommitResult(null);
 
     try {
-      const data = await previewBulkRegistration(selectedFile, columnMapping);
+      const data = await previewBulkRegistration(selectedFile, columnMapping, uploadTargetBranch);
       setPreviewData(data);
     } catch (err: unknown) {
       const axiosErr = err as {
@@ -897,6 +1008,7 @@ export default function AdminPage() {
       const res = await commitBulkRegistration(selectedFile, {
         skipInvalid,
         mapping: columnMapping,
+        branch: uploadTargetBranch,
       });
       setCommitResult(res);
       setPreviewData(null);
@@ -958,11 +1070,12 @@ export default function AdminPage() {
             {/* Navigation Tabs */}
             <nav className="space-y-1.5">
               {[
+                { id: 'students', label: 'All Students Directory', icon: Users, badge: studentsList.length },
                 { id: 'upload', label: 'Bulk Student Upload', icon: Upload },
                 { id: 'placed', label: 'Record Placements', icon: Award },
                 { id: 'analytics', label: 'Pie Chart Analytics', icon: PieChartIcon },
                 { id: 'curriculum', label: 'Curriculum Credits', icon: Layers },
-                { id: 'drives', label: 'Drives & AI Summarizer', icon: Briefcase },
+                { id: 'drives', label: 'Drives & AI Summarizer', icon: Briefcase, badge: drivesList.length },
                 { id: 'stats-export', label: 'Placement Statistics Excel', icon: FileSpreadsheet },
               ].map((item) => {
                 const Icon = item.icon;
@@ -972,14 +1085,21 @@ export default function AdminPage() {
                     key={item.id}
                     type="button"
                     onClick={() => setActiveTabSafe(item.id)}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition text-left ${
+                    className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition text-left ${
                       isActive
                         ? 'bg-neutral-800/90 text-white shadow-xs border border-neutral-700/60'
                         : 'text-neutral-400 hover:text-white hover:bg-neutral-900/60'
                     }`}
                   >
-                    <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-neutral-400'}`} />
-                    <span>{item.label}</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Icon className={`h-4 w-4 shrink-0 ${isActive ? 'text-white' : 'text-neutral-400'}`} />
+                      <span className="truncate">{item.label}</span>
+                    </div>
+                    {typeof item.badge === 'number' && item.badge > 0 && (
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-neutral-900 border border-neutral-700 text-neutral-300">
+                        {item.badge}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -1035,7 +1155,7 @@ export default function AdminPage() {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#18181b] text-white text-black hover:bg-neutral-200 text-xs font-bold transition shadow-xs"
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-neutral-800 text-white hover:bg-neutral-700 text-xs font-bold transition shadow-xs"
               >
                 <LogOut className="h-3.5 w-3.5" />
                 <span>Sign Out</span>
@@ -1045,6 +1165,372 @@ export default function AdminPage() {
 
           {/* Main Content Area */}
           <div className="p-4 sm:p-8 lg:p-10 max-w-7xl w-full mx-auto space-y-8 flex-1">
+            {/* TAB: ALL REGISTERED STUDENTS DIRECTORY */}
+            {adminTab === 'students' && (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                      <Users className="h-6 w-6 text-white" />
+                      All College Students Directory &amp; Batch Management
+                    </h2>
+                    <p className="mt-1 text-sm text-neutral-400">
+                      View, search, filter, and manage student credentials and academic records across all branches (CSE, ECE, EEE, IT, CIVIL, MCA).
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={fetchAllStudents}
+                      disabled={isLoadingStudents}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-neutral-300 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 text-neutral-400 ${isLoadingStudents ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTabSafe('upload')}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-black bg-white hover:bg-neutral-200 transition"
+                    >
+                      <Upload className="h-3.5 w-3.5 text-black" />
+                      Bulk Upload Excel
+                    </button>
+                  </div>
+                </div>
+
+                {/* Batch Action & Filtering Bar */}
+                <div className="p-4 bg-neutral-900/60 rounded-2xl border border-neutral-800 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    {/* Search & Branch/Status filters */}
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="relative">
+                        <Search className="h-4 w-4 absolute left-3 top-2.5 text-neutral-400" />
+                        <input
+                          type="text"
+                          placeholder="Search ID, Name, Roll No, Email..."
+                          value={studentSearch}
+                          onChange={(e) => setStudentSearch(e.target.value)}
+                          className="pl-9 pr-3 py-1.5 text-xs border border-neutral-700 rounded-lg bg-[#18181b] text-white font-medium focus:outline-hidden focus:ring-2 focus:ring-white w-56 sm:w-64"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-neutral-400 font-medium">Branch:</span>
+                        <select
+                          value={selectedBranchFilter}
+                          onChange={(e) => setSelectedBranchFilter(e.target.value)}
+                          className="border border-neutral-700 rounded-lg px-2.5 py-1.5 bg-[#18181b] text-white text-xs font-semibold focus:outline-hidden focus:ring-1 focus:ring-white"
+                        >
+                          <option value="ALL">All Branches</option>
+                          {ALL_BRANCHES.map((b) => (
+                            <option key={b} value={b}>{b}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-neutral-400 font-medium">Batch:</span>
+                        <select
+                          value={selectedBatchFilter}
+                          onChange={(e) => setSelectedBatchFilter(e.target.value)}
+                          className="border border-neutral-700 rounded-lg px-2.5 py-1.5 bg-[#18181b] text-white text-xs font-semibold focus:outline-hidden focus:ring-1 focus:ring-white"
+                        >
+                          <option value="ALL">All Batches</option>
+                          {Array.from(new Set(studentsList.map((s) => s.batch).filter(Boolean))).map((batch) => (
+                            <option key={String(batch)} value={String(batch)}>Batch {String(batch)}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-neutral-400 font-medium">Status:</span>
+                        <select
+                          value={statusFilter}
+                          onChange={(e) => setStatusFilter(e.target.value as any)}
+                          className="border border-neutral-700 rounded-lg px-2.5 py-1.5 bg-[#18181b] text-white text-xs font-semibold focus:outline-hidden focus:ring-1 focus:ring-white"
+                        >
+                          <option value="all">All Statuses</option>
+                          <option value="placed">Placed Only</option>
+                          <option value="unplaced">Unplaced Only</option>
+                          <option value="backlogs">With Active Backlogs</option>
+                          <option value="zero_backlogs">Zero Backlogs</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Batch Danger Action: Delete Batch */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteBatch(selectedBranchFilter, selectedBatchFilter)}
+                        disabled={isDeletingBatch || studentsList.length === 0}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-400 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/70 transition disabled:opacity-40"
+                        title="Delete all student records matching currently selected branch and batch filter"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-rose-400" />
+                        <span>
+                          {isDeletingBatch
+                            ? 'Deleting Batch...'
+                            : `Delete Filtered Batch (${
+                                selectedBranchFilter === 'ALL' && selectedBatchFilter === 'ALL'
+                                  ? 'All Uploads'
+                                  : `${selectedBranchFilter !== 'ALL' ? selectedBranchFilter : ''} ${selectedBatchFilter !== 'ALL' ? selectedBatchFilter : ''}`.trim()
+                              })`}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Students Table */}
+                <div className="bg-[#101012] border border-neutral-800 rounded-2xl overflow-hidden shadow-xs">
+                  {isLoadingStudents ? (
+                    <div className="p-12 text-center text-xs text-neutral-400 flex flex-col items-center justify-center gap-3">
+                      <RefreshCw className="h-6 w-6 animate-spin text-neutral-400" />
+                      <span>Loading university student directory...</span>
+                    </div>
+                  ) : (
+                    (() => {
+                      const filtered = studentsList.filter((s) => {
+                        if (selectedBranchFilter !== 'ALL' && s.branch?.toUpperCase() !== selectedBranchFilter.toUpperCase()) {
+                          return false;
+                        }
+                        if (selectedBatchFilter !== 'ALL' && s.batch !== selectedBatchFilter) {
+                          return false;
+                        }
+                        if (statusFilter === 'placed' && !s.placement?.isPlaced && s.placementStatus === 'UNPLACED') {
+                          return false;
+                        }
+                        if (statusFilter === 'unplaced' && (s.placement?.isPlaced || (s.placementStatus && s.placementStatus !== 'UNPLACED'))) {
+                          return false;
+                        }
+                        if (statusFilter === 'backlogs' && s.activeBacklogs === 0) {
+                          return false;
+                        }
+                        if (statusFilter === 'zero_backlogs' && s.activeBacklogs > 0) {
+                          return false;
+                        }
+                        if (studentSearch.trim()) {
+                          const q = studentSearch.trim().toLowerCase();
+                          const matches =
+                            s.studentId.toLowerCase().includes(q) ||
+                            (s.name && s.name.toLowerCase().includes(q)) ||
+                            (s.registrationNumber && s.registrationNumber.toLowerCase().includes(q)) ||
+                            (s.email && s.email.toLowerCase().includes(q)) ||
+                            (s.branch && s.branch.toLowerCase().includes(q));
+                          if (!matches) return false;
+                        }
+                        return true;
+                      });
+
+                      if (filtered.length === 0) {
+                        return (
+                          <div className="p-12 text-center text-xs text-neutral-400">
+                            No student records found matching the specified filters.
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs divide-y divide-neutral-800">
+                            <thead className="bg-[#141416] text-neutral-400 font-semibold uppercase text-[10px] tracking-wider">
+                              <tr>
+                                <th className="px-3.5 py-3 text-left">Student ID</th>
+                                <th className="px-3.5 py-3 text-left">Branch</th>
+                                <th className="px-3.5 py-3 text-left">Name</th>
+                                <th className="px-3.5 py-3 text-left">Batch</th>
+                                <th className="px-3.5 py-3 text-left">Email / Contact</th>
+                                <th className="px-3.5 py-3 text-left">CGPA</th>
+                                <th className="px-3.5 py-3 text-left">Backlogs</th>
+                                <th className="px-3.5 py-3 text-left">Status</th>
+                                <th className="px-3.5 py-3 text-center">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-neutral-800 bg-[#101012]">
+                              {filtered.map((s) => (
+                                <tr key={s.studentId} className="hover:bg-neutral-900/60 transition">
+                                  <td className="px-3.5 py-3 font-mono font-bold text-white">
+                                    <div>{s.studentId}</div>
+                                    {s.registrationNumber && (
+                                      <div className="text-[10px] text-neutral-400 font-normal">
+                                        Reg: {s.registrationNumber}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-3.5 py-3">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-neutral-900 border border-neutral-700 text-neutral-200">
+                                      {s.branch || '—'}
+                                    </span>
+                                  </td>
+                                  <td className="px-3.5 py-3 text-white font-medium">
+                                    <div>{s.name || '—'}</div>
+                                    {(s.firstName || s.lastName) && (
+                                      <div className="text-[10px] text-neutral-400">
+                                        {[s.firstName, s.lastName].filter(Boolean).join(' ')}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="px-3.5 py-3 text-neutral-400 font-medium whitespace-nowrap">
+                                    {s.batch || '—'}
+                                  </td>
+                                  <td className="px-3.5 py-3 text-neutral-400 font-mono text-[11px]">
+                                    <div className="truncate max-w-[150px]" title={s.email || ''}>{s.email || '—'}</div>
+                                    <div className="text-neutral-500 text-[10px]">{s.phone || '—'}</div>
+                                  </td>
+                                  <td className="px-3.5 py-3 font-bold text-white text-sm font-mono">
+                                    {s.cgpa ? s.cgpa.toFixed(2) : '0.00'}
+                                  </td>
+                                  <td className="px-3.5 py-3">
+                                    <span
+                                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                        s.activeBacklogs === 0
+                                          ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/80'
+                                          : 'bg-rose-950/60 text-rose-400 border border-rose-800/80'
+                                      }`}
+                                    >
+                                      {s.activeBacklogs}
+                                    </span>
+                                  </td>
+                                  <td className="px-3.5 py-3">
+                                    {s.placementStatus === 'DREAM' ? (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-white text-black border border-white">
+                                        ★ Dream
+                                      </span>
+                                    ) : s.placementStatus === 'INTERNSHIP' ? (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-neutral-200 text-black border border-neutral-300">
+                                        ⏳ Internship
+                                      </span>
+                                    ) : s.placementStatus === 'GENERAL' ? (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-neutral-800 text-white border border-neutral-700">
+                                        💼 General
+                                      </span>
+                                    ) : s.placement?.isPlaced ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950/80 text-emerald-300 border border-emerald-700">
+                                        <Check className="h-3 w-3" /> Placed
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-neutral-900 text-neutral-400 border border-neutral-800">
+                                        Unplaced
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3.5 py-3 text-center whitespace-nowrap">
+                                    <div className="flex items-center justify-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => setSelectedStudentForModal(s)}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-neutral-300 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 transition"
+                                      >
+                                        <Eye className="h-3 w-3 text-neutral-400" />
+                                        Full Record
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDeleteSingleStudent(s.studentId, s.name)}
+                                        disabled={isDeletingStudent === s.studentId}
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-rose-400 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/60 transition disabled:opacity-50"
+                                        title="Delete student record"
+                                      >
+                                        <Trash2 className="h-3 w-3 text-rose-400" />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()
+                  )}
+                </div>
+
+                {/* Modal for Full Record Inspection */}
+                {selectedStudentForModal && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+                    <div className="bg-[#18181b] border border-neutral-800 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl">
+                      <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+                        <div className="flex items-center gap-2">
+                          <User className="h-5 w-5 text-white" />
+                          <h3 className="text-sm font-bold text-white">
+                            Student Profile Record — {selectedStudentForModal.studentId}
+                          </h3>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedStudentForModal(null)}
+                          className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-xs bg-neutral-900/60 p-4 rounded-xl border border-neutral-800">
+                        <div>
+                          <span className="text-neutral-500 block">Full Name:</span>
+                          <span className="font-semibold text-white">{selectedStudentForModal.name || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-500 block">Registration Number:</span>
+                          <span className="font-semibold text-white">{selectedStudentForModal.registrationNumber || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-500 block">Branch / Dept:</span>
+                          <span className="font-semibold text-white">{selectedStudentForModal.branch || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-500 block">Batch / Class:</span>
+                          <span className="font-semibold text-white">{selectedStudentForModal.batch || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-500 block">Email:</span>
+                          <span className="font-semibold text-white break-all">{selectedStudentForModal.email || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-500 block">Phone:</span>
+                          <span className="font-semibold text-white">{selectedStudentForModal.phone || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-500 block">CGPA:</span>
+                          <span className="font-bold text-emerald-400 text-sm">{selectedStudentForModal.cgpa.toFixed(2)}</span>
+                        </div>
+                        <div>
+                          <span className="text-neutral-500 block">Active Backlogs:</span>
+                          <span className="font-bold text-white">{selectedStudentForModal.activeBacklogs}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedStudentForModal(null)}
+                          className="px-4 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-300 font-semibold rounded-lg text-xs"
+                        >
+                          Close
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const sid = selectedStudentForModal.studentId;
+                            const sname = selectedStudentForModal.name;
+                            setSelectedStudentForModal(null);
+                            handleDeleteSingleStudent(sid, sname);
+                          }}
+                          className="px-4 py-2 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/70 text-rose-300 font-semibold rounded-lg text-xs flex items-center gap-1.5"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete Student Record
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* TAB: PLACED STUDENTS RECORDING & ROSTER */}
             {adminTab === 'placed' && (
               <PlacedStudentsManager
@@ -1075,7 +1561,7 @@ export default function AdminPage() {
                   Bulk Student Registration
                 </h2>
                 <p className="mt-1 text-sm text-neutral-400">
-                  Upload an Excel (.xlsx) roster to automatically create user accounts and academic profiles.
+                  Upload an Excel (.xlsx) roster to automatically create user accounts and academic profiles across departments.
                   Each student’s <strong>Registration Number / Student ID</strong> is set as their default password.
                 </p>
               </div>
@@ -1084,33 +1570,86 @@ export default function AdminPage() {
           {error && (
             <div
               role="alert"
-              className="mb-6 rounded-lg bg-red-50 p-4 border border-red-200 flex items-start gap-3"
+              className="mb-6 rounded-lg bg-red-950/40 p-4 border border-red-800/60 flex items-start gap-3"
             >
-              <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
-              <div className="text-sm font-medium text-red-800">{error}</div>
+              <AlertTriangle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+              <div className="text-sm font-medium text-red-300">{error}</div>
             </div>
           )}
 
           {commitResult && (
             <div
               role="status"
-              className="mb-6 rounded-lg bg-emerald-50 p-4 border border-emerald-200 flex items-start gap-3"
+              className="mb-6 rounded-lg bg-emerald-950/40 p-4 border border-emerald-800/60 flex items-start gap-3"
             >
-              <CheckCircle className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+              <CheckCircle className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
               <div>
-                <h3 className="text-sm font-bold text-emerald-900">
+                <h3 className="text-sm font-bold text-emerald-300">
                   Registration Successful!
                 </h3>
-                <p className="mt-1 text-sm text-emerald-800">
+                <p className="mt-1 text-sm text-emerald-300">
                   Created <strong>{commitResult.created}</strong> student accounts
                   {commitResult.skipped > 0 && ` (skipped ${commitResult.skipped} invalid rows)`}.
                 </p>
-                <p className="mt-2 text-xs text-emerald-700 bg-emerald-100/60 p-2 rounded">
+                <p className="mt-2 text-xs text-emerald-400 bg-emerald-950/60 border border-emerald-800/40 p-2 rounded">
                   🔑 <strong>Default Passwords:</strong> Students can immediately log in using their <strong>Student ID</strong> as both username and password.
                 </p>
               </div>
             </div>
           )}
+
+          {/* Target Department Selection */}
+          <div className="bg-[#18181b] rounded-xl shadow-sm border border-neutral-800 p-6 mb-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+              <div>
+                <h3 className="text-base font-semibold text-white flex items-center gap-2">
+                  <Building2 className="h-5 w-5 text-indigo-400" />
+                  Target Department / Branch for Upload
+                </h3>
+                <p className="text-xs text-neutral-400 mt-1">
+                  Choose which department this student batch belongs to. All students uploaded in this file will be registered under the selected department.
+                </p>
+              </div>
+              <div className="text-xs font-medium text-neutral-400 bg-neutral-900 px-3 py-1.5 rounded-md border border-neutral-800 self-start md:self-auto">
+                Current Target:{' '}
+                <span className="font-bold text-indigo-400">
+                  {uploadTargetBranch === 'AUTO'
+                    ? 'Auto-detect from Sheet'
+                    : uploadTargetBranch}
+                </span>
+              </div>
+            </div>
+
+            {/* Department Buttons */}
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { code: 'CSE', name: 'Computer Science' },
+                { code: 'ECE', name: 'Electronics & Comm.' },
+                { code: 'EEE', name: 'Electrical & Electronics' },
+                { code: 'IT', name: 'Information Tech.' },
+                { code: 'CIVIL', name: 'Civil Engineering' },
+                { code: 'MCA', name: 'Master of Comp. Apps' },
+                { code: 'AUTO', name: 'Auto-Detect / Multi-Dept' },
+              ].map((dept) => {
+                const isSelected = uploadTargetBranch === dept.code;
+                return (
+                  <button
+                    key={dept.code}
+                    type="button"
+                    onClick={() => handleUploadBranchChange(dept.code)}
+                    className={`px-3.5 py-2 rounded-lg text-xs font-semibold transition border flex items-center gap-1.5 ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm ring-2 ring-indigo-500/20'
+                        : 'bg-[#101012] text-neutral-300 border-neutral-800 hover:border-neutral-700 hover:text-white'
+                    }`}
+                  >
+                    <span className="font-bold">{dept.code}</span>
+                    <span className="text-[10px] opacity-75 font-normal">({dept.name})</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Card: Upload & Action Bar */}
           <div className="bg-[#18181b] text-white rounded-xl shadow-sm border border-neutral-800 overflow-hidden mb-8">
@@ -1376,27 +1915,27 @@ export default function AdminPage() {
                       {previewData.summary.total}
                     </span>
                   </div>
-                  <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                    <span className="text-xs text-emerald-600 block">Valid Rows</span>
-                    <span className="text-lg font-bold text-emerald-700">
+                  <div className="p-3 bg-emerald-950/30 rounded-lg border border-emerald-800/50">
+                    <span className="text-xs text-emerald-400 block">Valid Rows</span>
+                    <span className="text-lg font-bold text-emerald-300">
                       {previewData.summary.valid}
                     </span>
                   </div>
-                  <div className="p-3 bg-red-50 rounded-lg border border-red-200">
-                    <span className="text-xs text-red-600 block">Invalid Rows</span>
-                    <span className="text-lg font-bold text-red-700">
+                  <div className="p-3 bg-red-950/30 rounded-lg border border-red-800/50">
+                    <span className="text-xs text-red-400 block">Invalid Rows</span>
+                    <span className="text-lg font-bold text-red-300">
                       {previewData.summary.invalid}
                     </span>
                   </div>
-                  <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
-                    <span className="text-xs text-amber-600 block">Duplicates in File</span>
-                    <span className="text-lg font-bold text-amber-700">
+                  <div className="p-3 bg-amber-950/30 rounded-lg border border-amber-800/50">
+                    <span className="text-xs text-amber-400 block">Duplicates in File</span>
+                    <span className="text-lg font-bold text-amber-300">
                       {previewData.summary.duplicatesInFile}
                     </span>
                   </div>
-                  <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-                    <span className="text-xs text-purple-600 block">Duplicates in DB</span>
-                    <span className="text-lg font-bold text-purple-700">
+                  <div className="p-3 bg-purple-950/30 rounded-lg border border-purple-800/50">
+                    <span className="text-xs text-purple-400 block">Duplicates in DB</span>
+                    <span className="text-lg font-bold text-purple-300">
                       {previewData.summary.duplicatesInDb}
                     </span>
                   </div>
@@ -1424,7 +1963,7 @@ export default function AdminPage() {
                       return (
                         <tr
                           key={r.rowNumber}
-                          className={isValid ? 'hover:bg-neutral-900/60' : 'bg-red-50/50'}
+                          className={isValid ? 'hover:bg-neutral-900/60' : 'bg-red-950/20'}
                         >
                           <td className="px-3 py-2 font-mono text-neutral-400">
                             #{r.rowNumber}
@@ -1449,7 +1988,7 @@ export default function AdminPage() {
                           </td>
                           <td className="px-3 py-2">
                             {isValid ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                                 Ready
                               </span>
                             ) : (
@@ -1457,7 +1996,7 @@ export default function AdminPage() {
                                 {r.errors.map((e, idx) => (
                                   <span
                                     key={idx}
-                                    className="block text-[11px] text-red-700 font-medium"
+                                    className="block text-[11px] text-red-400 font-medium"
                                   >
                                     • {e}
                                   </span>
@@ -1824,7 +2363,7 @@ export default function AdminPage() {
                             value={driveCompany}
                             onChange={(e) => setDriveCompany(e.target.value)}
                             placeholder="e.g. Google, Microsoft, Infosys"
-                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-medium placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-medium placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                           />
                         </div>
 
@@ -1837,7 +2376,7 @@ export default function AdminPage() {
                             value={driveRole}
                             onChange={(e) => setDriveRole(e.target.value)}
                             placeholder="e.g. Software Engineer, Analyst"
-                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-medium placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-medium placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                           />
                         </div>
                       </div>
@@ -1885,7 +2424,7 @@ export default function AdminPage() {
                               const cat = e.target.value as 'GENERAL' | 'DREAM' | 'INTERNSHIP';
                               setDrivePackageCategory(cat);
                             }}
-                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                           >
                             <option value="GENERAL">💼 General (&lt; 7 LPA)</option>
                             <option value="DREAM">★ Dream (≥ 7 LPA)</option>
@@ -1915,7 +2454,7 @@ export default function AdminPage() {
                               }
                             }}
                             placeholder="e.g. 12.5"
-                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-semibold font-mono placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-semibold font-mono placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                           />
                         </div>
                       </div>
@@ -1965,7 +2504,7 @@ export default function AdminPage() {
                             value={driveMinCgpa}
                             onChange={(e) => setDriveMinCgpa(e.target.value)}
                             placeholder="e.g. 7.0 (0 for no cutoff)"
-                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-mono font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-mono font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                           />
                         </div>
 
@@ -1979,7 +2518,7 @@ export default function AdminPage() {
                             max="10"
                             value={driveTotalRounds}
                             onChange={(e) => setDriveTotalRounds(e.target.value)}
-                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-mono font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-mono font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                           />
                         </div>
                       </div>
@@ -2007,7 +2546,7 @@ export default function AdminPage() {
                               max="10"
                               value={driveMaxActiveBacklogs}
                               onChange={(e) => setDriveMaxActiveBacklogs(e.target.value)}
-                              className="w-20 border border-neutral-700 rounded-md px-2 py-1 bg-[#18181b] text-white text-black text-xs font-mono font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                              className="w-20 border border-neutral-700 rounded-md px-2 py-1 bg-[#18181b] text-white text-xs font-mono font-semibold focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                             />
                           </div>
                         )}
@@ -2091,7 +2630,7 @@ export default function AdminPage() {
                           required
                           value={driveDeadline}
                           onChange={(e) => setDriveDeadline(e.target.value)}
-                          className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                         />
                       </div>
 
@@ -2105,7 +2644,7 @@ export default function AdminPage() {
                           value={driveDescription}
                           onChange={(e) => setDriveDescription(e.target.value)}
                           placeholder="Summary of responsibilities, requirements, and candidate expectations..."
-                          className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs placeholder:text-gray-400 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                         />
                       </div>
 
@@ -2806,7 +3345,7 @@ export default function AdminPage() {
                               setNewFieldKey(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '_'));
                             }
                           }}
-                          className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                         />
                       </div>
 
@@ -2820,7 +3359,7 @@ export default function AdminPage() {
                           placeholder="e.g. github_link"
                           value={newFieldKey}
                           onChange={(e) => setNewFieldKey(e.target.value)}
-                          className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-mono font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                          className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-mono font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                         />
                         <p className="mt-1 text-[11px] text-gray-400">Unique identifier used as the spreadsheet column key.</p>
                       </div>
@@ -2831,7 +3370,7 @@ export default function AdminPage() {
                           <select
                             value={newFieldType}
                             onChange={(e) => setNewFieldType(e.target.value as 'text' | 'number' | 'dropdown')}
-                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                           >
                             <option value="text">Text (Single / Multi-line)</option>
                             <option value="number">Numeric</option>
@@ -2863,7 +3402,7 @@ export default function AdminPage() {
                             placeholder="e.g. Bangalore, Hyderabad, Pune, Remote"
                             value={newFieldOptions}
                             onChange={(e) => setNewFieldOptions(e.target.value)}
-                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                            className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                           />
                         </div>
                       )}
@@ -2886,7 +3425,7 @@ export default function AdminPage() {
                         <button
                           type="submit"
                           disabled={isSubmittingField}
-                          className="px-5 py-2 bg-[#18181b] text-white text-black font-bold rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:bg-gray-300 shadow-sm"
+                          className="px-5 py-2 bg-[#18181b] text-white font-bold rounded-lg text-xs font-bold hover:bg-indigo-700 disabled:bg-gray-300 shadow-sm"
                         >
                           {isSubmittingField ? 'Adding Column...' : 'Add Column to Sheet'}
                         </button>
@@ -3087,7 +3626,7 @@ export default function AdminPage() {
               {/* Header Info Banner */}
               <div className="bg-[#18181b] text-white p-6 rounded-2xl border border-neutral-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-bold text-gray-950 flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-white flex items-center gap-2">
                     <FileSpreadsheet className="h-6 w-6 text-white" />
                     University Placement &amp; Department Statistics Excel Generator
                   </h2>
@@ -3191,12 +3730,12 @@ export default function AdminPage() {
                   </div>
                 ) : (
                   /* ACTIVE TEMPLATE DETAILS CARD */
-                  <div className="bg-neutral-50 rounded-xl border border-neutral-200 p-5 space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 pb-4">
+                  <div className="bg-neutral-900/80 rounded-xl border border-neutral-800 p-5 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-800 pb-4">
                       <div>
-                        <div className="text-xs text-neutral-500 font-medium">Current Active Template</div>
-                        <div className="text-sm font-bold text-neutral-900 flex items-center gap-2 mt-0.5">
-                          <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                        <div className="text-xs text-neutral-400 font-medium">Current Active Template</div>
+                        <div className="text-sm font-bold text-white flex items-center gap-2 mt-0.5">
+                          <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
                           <span>{statsTemplateStatus.filename}</span>
                           <span className="text-neutral-400 font-normal text-xs">
                             ({Math.round((statsTemplateStatus.sizeBytes || 0) / 1024)} KB)
@@ -3209,15 +3748,15 @@ export default function AdminPage() {
                           href="http://localhost:4000/api/drives/statistics/download-template"
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-neutral-300 rounded-lg text-xs font-semibold text-neutral-700 bg-[#18181b] text-white hover:bg-neutral-100 transition shadow-2xs"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-neutral-700 rounded-lg text-xs font-semibold text-neutral-200 bg-neutral-900 hover:bg-neutral-800 transition shadow-2xs"
                         >
-                          <Download className="h-3.5 w-3.5 text-neutral-500" />
+                          <Download className="h-3.5 w-3.5 text-neutral-400" />
                           <span>Download Template</span>
                         </a>
                         <button
                           type="button"
                           onClick={handleDeleteRefTemplate}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-red-200 rounded-lg text-xs font-semibold text-red-600 bg-[#18181b] text-white hover:bg-red-50 transition"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-rose-800/60 rounded-lg text-xs font-semibold text-rose-400 bg-rose-950/40 hover:bg-rose-900/60 transition"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                           <span>Reset Template</span>
@@ -3227,14 +3766,14 @@ export default function AdminPage() {
 
                     {statsTemplateStatus.sheetNames && statsTemplateStatus.sheetNames.length > 0 && (
                       <div>
-                        <span className="text-xs font-semibold text-neutral-700 block mb-2">
+                        <span className="text-xs font-semibold text-neutral-300 block mb-2">
                           Detected Worksheets in Reference:
                         </span>
                         <div className="flex flex-wrap gap-2">
                           {statsTemplateStatus.sheetNames.map((sheet, i) => (
                             <span
                               key={i}
-                              className="px-2.5 py-1 rounded-md text-xs font-mono bg-[#18181b] text-white border border-neutral-200 text-neutral-800 shadow-2xs"
+                              className="px-2.5 py-1 rounded-md text-xs font-mono bg-neutral-800 border border-neutral-700 text-neutral-200 shadow-2xs"
                             >
                               📄 {sheet}
                             </span>
@@ -3244,8 +3783,8 @@ export default function AdminPage() {
                     )}
 
                     {/* Replace Form */}
-                    <div className="pt-2 border-t border-neutral-200">
-                      <details className="text-xs text-neutral-600">
+                    <div className="pt-2 border-t border-neutral-800">
+                      <details className="text-xs text-neutral-400">
                         <summary className="cursor-pointer font-semibold text-white hover:text-neutral-200">
                           Click here to replace / upload a different reference Excel sheet
                         </summary>
@@ -3306,7 +3845,7 @@ export default function AdminPage() {
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                       <div className="p-4 rounded-xl bg-neutral-900/60 border border-neutral-800">
                         <span className="text-[11px] font-semibold text-neutral-400 block uppercase">Total Enrolled</span>
-                        <span className="text-xl font-extrabold text-gray-950 mt-1 block">
+                        <span className="text-xl font-extrabold text-white mt-1 block">
                           {liveStatsSummary.totalStudents}
                         </span>
                       </div>

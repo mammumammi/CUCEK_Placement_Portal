@@ -984,7 +984,7 @@ export default function CoordinatorPage() {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-[#18181b] text-white text-black hover:bg-neutral-200 text-xs font-bold transition shadow-xs"
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-neutral-800 text-white hover:bg-neutral-700 text-xs font-bold transition shadow-xs"
               >
                 <LogOut className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Sign Out</span>
@@ -1954,7 +1954,7 @@ export default function CoordinatorPage() {
                       placeholder="Search ID, name, email..."
                       value={studentSearch}
                       onChange={(e) => setStudentSearch(e.target.value)}
-                      className="pl-9 pr-3 py-1.5 text-xs border border-neutral-700 rounded-lg bg-[#18181b] text-white text-black font-medium focus:outline-hidden focus:ring-2 focus:ring-blue-500 w-52 sm:w-60"
+                      className="pl-9 pr-3 py-1.5 text-xs border border-neutral-700 rounded-lg bg-[#18181b] text-white font-medium focus:outline-hidden focus:ring-2 focus:ring-blue-500 w-52 sm:w-60"
                     />
                   </div>
 
@@ -1967,7 +1967,7 @@ export default function CoordinatorPage() {
                           e.target.value as 'all' | 'placed' | 'unplaced' | 'backlogs' | 'zero_backlogs'
                         )
                       }
-                      className="text-xs border border-neutral-700 rounded-lg px-2.5 py-1.5 bg-[#18181b] text-white text-black font-medium focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                      className="text-xs border border-neutral-700 rounded-lg px-2.5 py-1.5 bg-[#18181b] text-white font-medium focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="all">All Students ({students.length})</option>
                       <option value="placed">
@@ -2264,7 +2264,7 @@ export default function CoordinatorPage() {
                             updated[idx] = { ...item, credits: isNaN(val) ? 0 : val };
                             setBranchCreditsList(updated);
                           }}
-                          className="w-full border border-neutral-700 rounded-lg px-3 py-1.5 bg-[#18181b] text-white text-black text-sm font-mono font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                          className="w-full border border-neutral-700 rounded-lg px-3 py-1.5 bg-[#18181b] text-white text-sm font-mono font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                         />
                       </div>
                     ))}
@@ -2637,7 +2637,7 @@ export default function CoordinatorPage() {
                         setNewFieldKey(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '_'));
                       }
                     }}
-                    className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   />
                 </div>
 
@@ -2651,7 +2651,7 @@ export default function CoordinatorPage() {
                     placeholder="e.g. github_link"
                     value={newFieldKey}
                     onChange={(e) => setNewFieldKey(e.target.value)}
-                    className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-mono font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-mono font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   />
                   <p className="mt-1 text-[11px] text-gray-400">Unique identifier used as the spreadsheet column key.</p>
                 </div>
@@ -2662,7 +2662,7 @@ export default function CoordinatorPage() {
                     <select
                       value={newFieldType}
                       onChange={(e) => setNewFieldType(e.target.value as 'text' | 'number' | 'dropdown')}
-                      className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                      className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                     >
                       <option value="text">Text (Single / Multi-line)</option>
                       <option value="number">Numeric</option>
@@ -2694,7 +2694,7 @@ export default function CoordinatorPage() {
                       placeholder="e.g. Bangalore, Hyderabad, Pune, Remote"
                       value={newFieldOptions}
                       onChange={(e) => setNewFieldOptions(e.target.value)}
-                      className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-black text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                      className="w-full border border-neutral-700 rounded-lg px-3 py-2 bg-[#18181b] text-white text-xs font-medium focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                     />
                   </div>
                 )}

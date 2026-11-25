@@ -73,19 +73,25 @@ export async function analyzeBulkRegistration(file: File): Promise<AnalyzeRespon
  *
  * @param file - The .xlsx spreadsheet file to preview.
  * @param mapping - Optional column-to-canonical field mapping overrides.
+ * @param branch - Optional target branch override for bulk batches.
  * @returns Parsed rows with validation error lists and summary metrics.
  */
 export async function previewBulkRegistration(
   file: File,
-  mapping?: Record<string, string>
+  mapping?: Record<string, string>,
+  branch?: string
 ): Promise<PreviewResponse> {
   const formData = new FormData();
   formData.append('file', file);
   if (mapping) {
     formData.append('mapping', JSON.stringify(mapping));
   }
+  if (branch && branch !== 'AUTO') {
+    formData.append('branch', branch);
+  }
 
   const response = await apiClient.post<PreviewResponse>('/registration/preview', formData, {
+    params: branch && branch !== 'AUTO' ? { branch } : undefined,
     headers: {
       // Explicitly override default application/json so browser/axios sets multipart/form-data with boundary
       'Content-Type': 'multipart/form-data',
@@ -99,21 +105,28 @@ export async function previewBulkRegistration(
  * Commits the bulk registration of students from an Excel file in a single database transaction.
  *
  * @param file - The .xlsx spreadsheet file to commit.
- * @param opts - Optional flags such as skipInvalid and column mapping overrides.
+ * @param opts - Optional flags such as skipInvalid, column mapping overrides, and target branch.
  * @returns Count of created and skipped student records.
  */
 export async function commitBulkRegistration(
   file: File,
-  opts?: { skipInvalid?: boolean; mapping?: Record<string, string> }
+  opts?: { skipInvalid?: boolean; mapping?: Record<string, string>; branch?: string }
 ): Promise<CommitResponse> {
   const formData = new FormData();
   formData.append('file', file);
   if (opts?.mapping) {
     formData.append('mapping', JSON.stringify(opts.mapping));
   }
+  if (opts?.branch && opts.branch !== 'AUTO') {
+    formData.append('branch', opts.branch);
+  }
+
+  const params: Record<string, string> = {};
+  if (opts?.skipInvalid) params.skipInvalid = 'true';
+  if (opts?.branch && opts.branch !== 'AUTO') params.branch = opts.branch;
 
   const response = await apiClient.post<CommitResponse>('/registration/commit', formData, {
-    params: opts?.skipInvalid ? { skipInvalid: 'true' } : undefined,
+    params: Object.keys(params).length > 0 ? params : undefined,
     headers: {
       // Explicitly override default application/json so browser/axios sets multipart/form-data with boundary
       'Content-Type': 'multipart/form-data',

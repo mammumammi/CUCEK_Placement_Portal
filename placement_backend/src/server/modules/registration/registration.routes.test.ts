@@ -590,5 +590,58 @@ describe('Registration Module (/api/registration)', () => {
     expect(s1?.credits).toBe(20); // Used default branch credit
     expect(s2?.credits).toBe(22); // Used default branch credit
   });
+
+  // 20. Super coordinator selects department for batch upload
+  it('20. allows super coordinator to assign specific department to uploaded batch via branch param', async () => {
+    // Row without branch column
+    const studentWithoutBranch = {
+      studentId: '2022BECE042',
+      name: 'Bob Martinez',
+      batch: '2022-2026',
+      email: 'bob.martinez@example.edu',
+      phone: '9876543211',
+      activeBacklogs: 0,
+      s1Sgpa: 8.0,
+      s1Credits: 20,
+    };
+
+    const buffer = await createExcelBuffer([studentWithoutBranch], [
+      'studentId',
+      'name',
+      'batch',
+      'email',
+      'phone',
+      'activeBacklogs',
+      's1Sgpa',
+      's1Credits',
+    ]);
+
+    // Preview with branch=ECE query param
+    const previewRes = await request(app)
+      .post('/api/registration/preview?branch=ECE')
+      .set('Cookie', adminCookie)
+      .attach('file', buffer, 'ece_batch.xlsx');
+
+    expect(previewRes.status).toBe(200);
+    expect(previewRes.body.summary.valid).toBe(1);
+    expect(previewRes.body.rows[0].data.branch).toBe('ECE');
+
+    // Commit with branch=ECE
+    const commitRes = await request(app)
+      .post('/api/registration/commit?branch=ECE')
+      .set('Cookie', adminCookie)
+      .attach('file', buffer, 'ece_batch.xlsx');
+
+    expect(commitRes.status).toBe(200);
+    expect(commitRes.body.created).toBe(1);
+
+    const [user] = await db.select().from(users).where(eq(users.username, '2022BECE042'));
+    expect(user).toBeDefined();
+    expect(user.branch).toBe('ECE');
+
+    const [profile] = await db.select().from(studentProfiles).where(eq(studentProfiles.studentId, '2022BECE042'));
+    expect(profile).toBeDefined();
+    expect(profile.branch).toBe('ECE');
+  });
 });
 

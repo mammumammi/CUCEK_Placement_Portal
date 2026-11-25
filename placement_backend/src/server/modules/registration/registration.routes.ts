@@ -112,11 +112,17 @@ export function createRegistrationRouter(db: Db): Router {
           }
         }
 
+        const targetBranch =
+          (typeof req.query.branch === 'string' && req.query.branch.trim()) ||
+          (typeof req.body?.branch === 'string' && req.body.branch.trim()) ||
+          undefined;
+
         const { rows, summary } = await validateRegistrationSheet(
           db,
           actor,
           req.file.buffer,
-          customMapping
+          customMapping,
+          targetBranch
         );
 
         res.status(200).json({ rows, summary });
@@ -158,12 +164,18 @@ export function createRegistrationRouter(db: Db): Router {
           }
         }
 
+        const targetBranch =
+          (typeof req.query.branch === 'string' && req.query.branch.trim()) ||
+          (typeof req.body?.branch === 'string' && req.body.branch.trim()) ||
+          undefined;
+
         const result = await commitRegistration(
           db,
           actor,
           req.file.buffer,
           skipInvalid,
-          customMapping
+          customMapping,
+          targetBranch
         );
 
         res.status(200).json(result);
